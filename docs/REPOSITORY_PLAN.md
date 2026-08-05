@@ -31,8 +31,18 @@
 | 9   | 定期実行                          | （実装予定）                        |
 | 10  | 判断ログと運用実績の保存          | （実装予定）                        |
 | 11  | ナンピノニクスの HTML ステータス画面 | （実装予定）                      |
+| 12  | キャラクターデザイン定義          | `character-design.yaml`（追加予定） |
+| 13  | バージョン別キャラクター画像      | `character/v{major}/`（追加予定）   |
+| 14  | 表示用エージェントパッケージ      | `examples/`（サンプル）/ `dist/`（実運用・Git管理外） |
+| 15  | 表示用パッケージのエクスポート処理 | `scripts/export_agent_package.py`  |
+| 16  | ステータス鑑定機能                | **将来範囲**（下記）                |
 
 いずれも**ナンピノニクス1個体のために作る**ものである。
+
+項目16のステータス鑑定機能（設定ファイルを解析してステータス候補・根拠・確信度を
+自動生成する仕組み）は**将来範囲であり、現時点では実装しない**。
+着手時期は [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) の Phase 9 に従い、
+生成した候補は人間が確認してから `visual-profile.yaml` へ反映する。
 
 ## このリポジトリでは扱わないもの
 
@@ -73,6 +83,7 @@ Issue・Pull Request として提案する。
 ## 関連文書
 
 - [`PROJECT_ROADMAP.md`](PROJECT_ROADMAP.md) — 企画全体の地図（本リポジトリの作業指示ではない）
-- [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) — 開発順序と将来構想
+- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — 今後の全体設計と実装順序（実装順序の正）
+- [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) — 構想段階の旧計画
 - [`../CLAUDE.md`](../CLAUDE.md) — 毎回必ず守る不変のルール
 - [`../README.md`](../README.md) — リポジトリの概要と設計の要点

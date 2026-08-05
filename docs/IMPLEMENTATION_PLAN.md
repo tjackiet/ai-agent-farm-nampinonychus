@@ -1,11 +1,12 @@
 # Nampinonychus Implementation Plan
 
-> **この文書の役割**：本リポジトリの**今後の全体設計と開発順序**（Phase 1〜9）。
-> **確定仕様ではない**：予定であり、進行に応じて変わる。
+> **この文書の役割**：本リポジトリの**今後の全体設計と実装順序**（Phase 1〜9）。
+> **本書が実装順序の正である**（[`../CLAUDE.md`](../CLAUDE.md) の文書役割表に対応）。
+> 予定は進行に応じて変わるが、変更は本書を更新して行う。
 > 実装してよい範囲は [`REPOSITORY_PLAN.md`](REPOSITORY_PLAN.md)、
 > 必ず守るルールは [`../CLAUDE.md`](../CLAUDE.md) を参照する。
-> **注意**：本書の開発順序は [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) の段階1〜9と
-> 一致しない。両文書の扱いは「未確定事項」にあり、人間が判断する。
+> [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) は構想段階の旧計画として残る
+> （同書の冒頭にも明記）。
 
 ## 1. このリポジトリの目的
 
@@ -42,6 +43,8 @@
 | 8   | `mood-rules.yaml`                 | 実績から normal / down / up を判定する唯一の正             |
 | 9   | `records/performance.sample.yaml` | エモート判定を確認するためのサンプル実績                   |
 | 10  | Claude Desktop の HTML Artifact   | YAML を読み込み、ステータス表示とエモート判定ができる      |
+| 11  | `scripts/export_agent_package.py` | 表示用パッケージのエクスポート処理（Phase 1）              |
+| 12  | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ            |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
@@ -172,27 +175,41 @@ Artifact 自身はキャラクター画像を生成しない。
 ## 6. Artifact への入力を1ファイルにまとめる
 
 現在の Artifact は複数の YAML を個別に入力する必要があり、操作が煩雑である。
-今後、正本ファイルをまとめた**表示用パッケージ**を生成する。
+そこで、正本ファイルをまとめた**表示用パッケージ**（`*.agent.json`）を生成する。
 
-出力例：`dist/nampinonychus.agent.json`
+### パッケージの構造
 
-内容：
+| キー                     | 内容                                                         |
+| ------------------------ | ------------------------------------------------------------ |
+| `package_schema_version` | パッケージ形式の版（正本 YAML の `schema_version` とは別）   |
+| `generated_at`           | 生成時刻（ISO8601 / Asia/Tokyo）                             |
+| `agent`                  | `agent.yaml` の内容                                          |
+| `visual_profile`         | `visual-profile.yaml` の内容                                 |
+| `status`                 | `status.yaml` の内容。口座・建玉・稼働状態の**表示に使う**   |
+| `mood_rules`             | `mood-rules.yaml` の内容                                     |
+| `performance`            | `records/performance.*.yaml` の内容                          |
+| `assets`                 | `normal` / `down` / `up` のキャラクター画像（Data URL）。画像が無い間は `null` |
 
-1. `agent`
-2. `visual_profile`
-3. `mood_rules`
-4. `performance`
-5. `assets.normal`
-6. `assets.down`
-7. `assets.up`
+- 正本の内容は**変換・再解釈せず**、対応するセクションへそのまま保持する。
+- **エモート判定に `status` は使わない。** 判定は `performance` と `mood_rules` だけで行う。
+  `status` は表示専用である。
+- この JSON は手で編集する正本ではなく、正本から生成される**派生物**である。
+  手で直すのは常に正本側（YAML・画像）とし、JSON は再生成する。
+- Artifact の利用者は、この1ファイルだけを選択する。
 
-画像は Data URL として `assets` へ埋め込む。画像が存在しない段階では
-`assets` の各値を `null` として生成できるようにする（Phase 1）。
+### 生成と保存場所
 
-**この JSON は手で編集する正本ではなく、正本ファイルから生成される派生物である。**
-手で直すのは常に正本側（YAML・画像）とし、JSON は再生成する。
+エクスポート処理は `scripts/export_agent_package.py`（Python 3 + PyYAML）。
 
-Artifact の利用者は、この1ファイルだけを選択する。
+| 用途     | コマンド                                           | 出力                                       | Git 管理                   |
+| -------- | -------------------------------------------------- | ------------------------------------------ | -------------------------- |
+| サンプル | `python3 scripts/export_agent_package.py --sample` | `examples/nampinonychus.sample.agent.json` | コミットする               |
+| 実運用   | `python3 scripts/export_agent_package.py`          | `dist/nampinonychus.agent.json`            | **対象外**（`.gitignore`） |
+
+- サンプルは `records/performance.sample.yaml` を使い、Claude Desktop の開発と動作確認に使う。
+- 実運用の既定入力は `records/performance.yaml`（`--performance` で変更可能）。
+  正式なファイル名は Phase 8 で確定する。
+- 画像が存在しない場合もエラーにせず、`assets` の各値を `null` として出力する。
 
 ## 7. 開発順序
 
@@ -212,6 +229,7 @@ Artifact の利用者は、この1ファイルだけを選択する。
 
 複数の YAML と画像から `*.agent.json` を生成するエクスポート処理を作る。
 最初は画像が存在しなくても動作するようにする。
+仕様・実行方法・保存場所は「6. Artifact への入力を1ファイルにまとめる」のとおり。
 
 ### Phase 2：Artifact の1ファイル入力対応
 
@@ -293,23 +311,17 @@ Phase の進行に関係なく、以下は常に守る（詳細は [`../CLAUDE.m
 
 | 文書                      | 本書との関係                                                                                             |
 | ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `../CLAUDE.md`            | 不変のルール。本書はこれに従う。本書の内容を CLAUDE.md へ転記しない                                      |
-| `REPOSITORY_PLAN.md`      | 実装範囲の唯一の正。本書の一部対象が未記載（下記）。**着手前に人間が追記を判断する**                     |
-| `DEVELOPMENT_PLAN.md`     | 開発順序が本書と異なる（下記）。どちらを正とするかは未確定                                               |
+| `../CLAUDE.md`            | 不変のルール。本書はこれに従う。文書役割表に本書が1行登録されており、計画本文は転記しない                |
+| `REPOSITORY_PLAN.md`      | 実装範囲の唯一の正。本書の対象（キャラクターデザイン・画像・表示用パッケージ・エクスポート処理・将来のステータス鑑定）は「扱うもの」に記載済み |
+| `DEVELOPMENT_PLAN.md`     | 構想段階の旧計画（記録として残す）。**実装順序の正は本書**                                               |
 | `PROJECT_ROADMAP.md`      | 企画全体の地図。本書は項目5・6（可視化・エモート）の「自分のぶんのみ」の範囲内であり矛盾しない           |
-
-### REPOSITORY_PLAN.md との差分
-
-`character-design.yaml`・`character/` 配下の画像・`dist/` の表示用パッケージ・
-ステータス鑑定の自動化は、現在の「扱うもの」の表に明示されていない
-（項目11「HTML ステータス画面」に隣接するが、独立した項目としては存在しない）。
-本書はこれらを計画として整理するのみで、`REPOSITORY_PLAN.md` の更新は人間が判断する。
 
 ### DEVELOPMENT_PLAN.md との対応
 
-`DEVELOPMENT_PLAN.md` はエージェント実装（段階2〜6）→ 可視化（段階7〜9）の順、
-本書は可視化・パッケージ（Phase 1〜5）→ エージェント実装（Phase 6〜7）の順である。
-Artifact とエモート判定のデータ構造が先行して存在する現状に合わせ、本書は後者を採る。
+旧計画はエージェント実装（段階2〜6）→ 可視化（段階7〜9）の順だったが、
+Artifact とエモート判定のデータ構造が先行して存在する現状に合わせ、本書は
+可視化・パッケージ（Phase 1〜5）→ エージェント実装（Phase 6〜7）の順を正とする。
+参考として、旧計画の段階との対応を示す。
 
 | DEVELOPMENT_PLAN.md | 状態                     | 本書での対応                         |
 | ------------------- | ------------------------ | ------------------------------------ |
@@ -324,17 +336,21 @@ Artifact とエモート判定のデータ構造が先行して存在する現�
 
 以下は本書では決めない。実装着手前に人間が判断する。
 
-1. `DEVELOPMENT_PLAN.md` の扱い（本書へ置き換える／開発順序だけ本書へ移す／併存させる）
-2. `REPOSITORY_PLAN.md`「扱うもの」への追記
-   （`character-design.yaml`・`character/`・`dist/`・ステータス鑑定の自動化）
-3. `CLAUDE.md` の文書役割表に本書の行を追加するか（本文への計画転記はしない前提）
-4. 表示用パッケージに `status.yaml`（稼働状態・口座）を含めるか（現計画では含めない）
-5. `dist/` の扱い（サンプル実績で生成した版をコミットするか、生成物としてコミットしないか）
-6. エクスポート処理の実行環境と実行方法（言語・コマンド）
-7. 実運用時の performance ファイルの名前と置き場所（`records/performance.sample.yaml` はサンプル専用）
-8. `memory/` 配下（判断ログ・日次サマリ・lessons）をどの頻度でコミットするか、ローカルのみとするか
-9. 画像1枚あたりのサイズ目安（Data URL 埋め込みでパッケージが過大にならないための上限）
-10. `character-design.yaml` の形式詳細（`schema_version` ほか。Phase 3 で確定）
+1. 実運用時の performance ファイルの正式な名前と置き場所
+   （エクスポート処理の既定値は `records/performance.yaml`。Phase 8 で確定する。
+   `records/performance.sample.yaml` はサンプル専用）
+2. `memory/` 配下（判断ログ・日次サマリ・lessons）をどの頻度でコミットするか、ローカルのみとするか
+3. 画像1枚あたりのサイズ目安（Data URL 埋め込みでパッケージが過大にならないための上限）
+4. `character-design.yaml` の形式詳細（`schema_version` ほか。Phase 3 で確定）
+
+以下は判断済みである（2026-08 時点）。
+
+- 実装順序の正は本書（`DEVELOPMENT_PLAN.md` は旧計画として残す）
+- `REPOSITORY_PLAN.md`「扱うもの」へ対象を追記済み
+- `CLAUDE.md` の文書役割表に本書の行を追加済み（計画本文は転記しない）
+- 表示用パッケージに `status` を**含める**（表示専用。エモート判定には使わない）
+- 実運用の生成先は `dist/`（Git 管理外）、サンプルは `examples/` へコミット
+- エクスポート処理は Python 3 + PyYAML（`scripts/export_agent_package.py`）
 
 ## 関連文書
 

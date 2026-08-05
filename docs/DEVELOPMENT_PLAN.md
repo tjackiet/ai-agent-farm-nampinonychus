@@ -1,10 +1,10 @@
 # Nampinonychus Development Plan
 
-> **この文書の役割**：本リポジトリの**開発順序と将来構想**。
-> **確定仕様ではない**：予定であり、進行に応じて変わる。
+> **この文書の役割**：構想段階でまとめた**旧開発計画**。記録として残す。
+> **現在の実装順序の正は [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) である。**
+> 本書の段階・順序・将来構想を、現時点の作業対象と解釈しないこと。
 > 実装してよい範囲は [`REPOSITORY_PLAN.md`](REPOSITORY_PLAN.md)、
 > 必ず守るルールは [`../CLAUDE.md`](../CLAUDE.md) を参照する。
-> **「将来構想」の項目を、現時点の作業対象と解釈しないこと。**
 
 ## 現在地
 
@@ -92,6 +92,7 @@
 
 ## 関連文書
 
+- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — 現在の実装順序（正）
 - [`REPOSITORY_PLAN.md`](REPOSITORY_PLAN.md) — 実装してよい範囲（唯一の正）
 - [`PROJECT_ROADMAP.md`](PROJECT_ROADMAP.md) — 企画全体の地図
 - [`../CLAUDE.md`](../CLAUDE.md) — 毎回必ず守る不変のルール
