@@ -1,0 +1,60 @@
+# ナンピノニクスの現在状態
+#
+# 15分ごとの実行で毎回上書きされます。
+# 現段階は未稼働のため、スキーマを示す初期値が入っています。
+# null は「まだ観測していない」を意味し、推測値を入れてはいけません。
+
+version: 1
+updated_at: null # ISO8601 (Asia/Tokyo)
+run_id: null
+state: NOT_INITIALIZED # NOT_INITIALIZED | IDLE | LADDERING | HOLDING | HIBERNATING | HALTED
+mood: 待機 # 表示用。personality.md の状態別セリフに対応。
+
+account:
+  initial_jpy: 1000000
+  cash_jpy: null
+  equity_jpy: null
+  drawdown_pct: null # (equity - initial) / initial * 100
+
+market:
+  pair: btc_jpy
+  last_price: null
+  anchor_price: null # 直近7日の日足高値
+  drop_from_anchor_pct: null
+  source: null # 例: "bitbank ticker btc_jpy --format=json --machine"
+  fetched_at: null
+
+position:
+  amount: 0
+  avg_cost_jpy: null
+  cost_basis_jpy: 0
+  unrealized_pnl_jpy: null
+  unrealized_pnl_pct: null
+  opened_at: null
+  age_days: null
+
+ladder:
+  step: 0
+  max_steps: 5
+  used_budget_jpy: 0
+  total_budget_jpy: 600000
+  last_fill_price_jpy: null
+  last_fill_at: null
+  cooldown_until: null
+
+orders:
+  pending_buy: [] # [{ order_id, price, amount, step, placed_at }]
+  pending_sell: [] # [{ order_id, price, amount, level, placed_at }]
+
+last_decision:
+  action: null # BUY | SELL | HOLD
+  reason: null
+  at: null
+
+counters:
+  fills_today: 0
+  total_fills: 0
+  closed_positions: 0
+  realized_pnl_jpy: 0
+
+notes: 設計段階のため未稼働。ペーパートレード口座は未初期化。
