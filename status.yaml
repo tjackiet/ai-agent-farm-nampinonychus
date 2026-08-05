@@ -4,7 +4,10 @@
 # 現段階は未稼働のため、スキーマを示す初期値が入っています。
 # null は「まだ観測していない」を意味し、推測値を入れてはいけません。
 
-version: 1
+# 本ファイルの形式の版。エージェント本体のバージョンではありません。
+# エージェントのバージョンは agent.yaml の version だけが持ちます（唯一の正）。
+schema_version: 1
+
 updated_at: null # ISO8601 (Asia/Tokyo)
 run_id: null
 state: NOT_INITIALIZED # NOT_INITIALIZED | IDLE | LADDERING | HOLDING | HIBERNATING | HALTED
