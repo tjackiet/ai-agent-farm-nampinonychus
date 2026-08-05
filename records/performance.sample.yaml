@@ -1,0 +1,41 @@
+# ペーパートレード実績のサンプル
+#
+# **これは実際の運用結果ではありません。**
+# 表示側（Claude Desktop の HTML Artifact）と `mood-rules.yaml` の接続を確認するための、
+# 固定のサンプルデータです。実績が出る前の表示確認にだけ使います。
+#
+# - 判定結果（normal / down / up）は本ファイルに書きません。
+#   表示側が `mood-rules.yaml` を使って毎回算出します。
+#   現在の値は `mood-rules.yaml` では down に該当します。
+# - 口座・建玉・稼働状態は `status.yaml` が持ちます。本ファイルは実績だけを持ちます。
+# - 実運用時の実績はローカルで更新します（15分ごとに GitHub へコミットしません）。
+
+# 本ファイルの形式の版。エージェント本体のバージョンではありません。
+# エージェントのバージョンは agent.yaml の version だけが持ちます（唯一の正）。
+schema_version: 1
+
+agent_id: nampinonychus # agent.yaml agent.id
+agent_version: "1.0" # この実績を出した時点の agent.yaml version
+
+recorded_at: "2026-01-01T00:00:00+09:00" # サンプルであることが分かる固定値
+source: sample # sample = 実績ではない。実データは別の値を使う。
+
+# 資産。initial は agent.yaml capital.initial_jpy と同じ前提。
+initial_equity_jpy: 1000000
+current_equity_jpy: 976000
+
+# 損益率（百分率）。マイナスが損失。
+total_pnl_pct: -2.4 # 初期資産比の累計。(976000 - 1000000) / 1000000 * 100
+pnl_24h_pct: -2.1 # 直近24時間
+
+# 現在のドローダウン。**最高値からの下落率を正の数で持ちます。**
+# `status.yaml` の `account.drawdown_pct`（初期資金比・マイナスで表す）とは
+# 基準点も符号も異なります。`mood-rules.yaml` の `drawdown_pct_gte` は本項目を見ます。
+# 4.8% は、最高値が約 1,025,210 JPY まで伸びたあとに 976,000 JPY まで下げた状態。
+drawdown_pct: 4.8
+
+trades_24h: 2 # 直近24時間の取引回数
+
+# 連勝・連敗。同時に 0 より大きくなることはありません。
+consecutive_wins: 0
+consecutive_losses: 3

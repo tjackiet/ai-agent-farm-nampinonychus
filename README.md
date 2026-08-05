@@ -28,10 +28,13 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── agent.yaml
 ├── status.yaml
 ├── visual-profile.yaml
+├── mood-rules.yaml
 ├── personality.md
 ├── strategy.md
 ├── risk-policy.md
 ├── memory-policy.md
+├── records/
+│   └── performance.sample.yaml
 └── docs/
     ├── PROJECT_ROADMAP.md
     ├── REPOSITORY_PLAN.md
@@ -44,6 +47,8 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `agent.yaml`      | エージェント定義。**数値パラメータとバージョンの唯一の正**       |
 | `status.yaml`     | 現在の状態。15分ごとの実行で上書きされる                         |
 | `visual-profile.yaml` | 表示用プロフィール。性格・傾向・特性・技の静的データ         |
+| `mood-rules.yaml` | 成績連動エモートの判定ルール。実績から `normal` / `down` / `up` を決める |
+| `records/performance.sample.yaml` | ペーパートレード実績のサンプル。**実際の運用結果ではない** |
 | `personality.md`  | 性格・行動原則・話し方                                           |
 | `strategy.md`     | 判断ロジック。買い下がりの階段と決済条件                         |
 | `risk-policy.md`  | リスク制約。性格と矛盾した場合はこちらが優先                     |
@@ -81,7 +86,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | 項目             | 意味                     | 持つファイル                                              |
 | ---------------- | ------------------------ | --------------------------------------------------------- |
 | `version`        | エージェント本体のバージョン | `agent.yaml` **のみ**                                     |
-| `schema_version` | ファイル形式の版         | すべての YAML（`agent.yaml` / `visual-profile.yaml` / `status.yaml`） |
+| `schema_version` | ファイル形式の版         | すべての YAML（`agent.yaml` / `visual-profile.yaml` / `status.yaml` / `mood-rules.yaml` / `records/performance.sample.yaml`） |
 
 | 更新    | 変更の内容                                                                                                                   |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -108,6 +113,52 @@ README やコメントの修正など、判断へ影響しない変更ではバ�
 ### 表示側の扱い
 
 HTML ステータス画面は、`agent.yaml` の `version` から `major` を読み取り、進化形態とキャラクター画像のパスを決めます。表示のために進化段階の番号を別途持たせません。
+
+## 成績連動エモート
+
+同じ形態のなかでの表情変化（`normal` / `down` / `up`）は、ペーパートレードの**実績**から決めます。
+
+`status.yaml` の稼働状態（`IDLE` / `LADDERING` / `HIBERNATING` など）は判定に使いません。稼働状態と成績は別のものとして扱います。
+
+### データフロー
+
+```text
+ペーパートレード実績
+  → performance データ（records/performance.sample.yaml）
+  → mood-rules.yaml で判定
+  → normal / down / up
+  → visual-profile.yaml の character 画像を選択
+```
+
+判定結果はどのファイルにも保存しません。表示側が毎回算出します。
+
+| ファイル                          | 役割                                                   |
+| --------------------------------- | ------------------------------------------------------ |
+| `records/performance.sample.yaml` | 実績データ（損益率・ドローダウン・連勝連敗など）を持つ |
+| `mood-rules.yaml`                 | 実績から `normal` / `down` / `up` を判定する基準を持つ |
+| `visual-profile.yaml`             | 判定結果に対応するキャラクター画像のパスを持つ         |
+
+### 判定ルール
+
+**判定基準の唯一の正は `mood-rules.yaml` です。** `down` → `up` → `normal` の順に評価し、最初に該当したものを結果とします。
+
+| 結果     | 条件（いずれか1つでも満たせば該当）                                    |
+| -------- | ---------------------------------------------------------------------- |
+| `down`   | 直近24時間の損益率が -2% 以下／3連敗以上／現在のドローダウンが 5% 以上 |
+| `up`     | `down` に該当せず、直近24時間の損益率が +2% 以上／3連勝以上            |
+| `normal` | 上のいずれにも該当しない                                               |
+
+### サンプル実績
+
+`records/performance.sample.yaml` は、表示側との接続を確認するための固定値です。
+
+**実際の運用結果ではありません。** `source: sample` がその印です。現在の値は `mood-rules.yaml` では `down` と判定されます。
+
+### 実運用時の扱い
+
+**実績データはローカルで更新します。15分ごとに GitHub へコミットしません。**
+
+リポジトリが持つのは判定ルールとサンプルであり、稼働中の実績そのものはリポジトリの更新頻度と切り離します。
 
 ## 利用予定のツール
 
