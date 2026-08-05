@@ -8,19 +8,17 @@
 # - 数値パラメータの正は `agent.yaml` です。本ファイルの値は表示のための要約であり、
 #   売買判断には使いません。食い違う場合は常に `agent.yaml` を優先します。
 # - 各値の根拠は行コメントに残しています。
-# - 本ファイルの値をエージェント自身が書き換えません。変更は人間が判断します（`CLAUDE.md`）。
+# - 本ファイルの値をエージェント自身が書き換えません。変更は人間が判断します。
 
 version: 1
 
 identity:
   name: ナンピノニクス # agent.yaml agent.name
-  personality_tag: 逆張り・ナンピン型 # agent.yaml agent.archetype (contrarian-dca)
-  strategy_tags: # strategy.md / agent.yaml strategy
-    - アンカー基準の逆張り # strategy.no_chase「現在価格がアンカー以上の間は新規買いを行わない」
-    - 5段の買い下がり # strategy.ladder.max_steps: 5
-    - 指値主体 # strategy.entry.order_type: limit
-    - 二段階利確 # strategy.exit.take_profit（+3% で半分 / +6% で残り）
-    - 60日で時間切れ手仕舞い # strategy.exit.time_stop_days: 60
+  # キャラクターの性格を表す呼び名。戦略の分類は strategy_tags 側に置く。
+  personality_tag: 押し目信者 # personality.md「下がったら、うれしい」／「下がるほど関心が高まる」
+  strategy_tags: # 戦略の分類。agent.yaml agent.archetype (contrarian-dca) に対応
+    - 逆張り # strategy.no_chase「現在価格がアンカー以上の間は新規買いを行わない」
+    - ナンピン # strategy.ladder（5段の買い下がり）
 
 # 各軸の 0 と 100 の意味。HTML 側に軸ラベルを持たせないため、ここで定義します。
 tendency_scale:
@@ -96,9 +94,9 @@ character:
   normal: character/normal.webp
   down: character/down.webp
   up: character/up.webp
-  # TODO: normal / down / up の切り替え条件は未定。
-  #   候補は status.yaml の state（IDLE / LADDERING / HOLDING / HIBERNATING / HALTED）、
-  #   account.drawdown_pct、position.unrealized_pnl_pct のいずれか、またはその組み合わせ。
+  # TODO: normal / down / up は、運用状態（IDLE / LADDERING などの state）ではなく、
+  #   将来の運用成績から判定する。判定に使う指標としきい値は未定であり、
+  #   ペーパートレードの実績が蓄積されるまで決められない。
   #   DEVELOPMENT_PLAN.md 段階9「成績連動エモート」で決めるため、ここでは決めない。
 
 # TODO: 状態別のセリフ（personality.md「状態別のセリフ」）を本ファイルに持たせるかは未定。
