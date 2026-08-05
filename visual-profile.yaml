@@ -128,10 +128,11 @@ character:
   # normal / down / up は同じバージョン内での表情差分（成績連動エモート）であり、
   # 形態そのものの変化（evolution）とは別のものです。
   #
-  # TODO: normal / down / up は、運用状態（IDLE / LADDERING などの state）ではなく、
-  #   将来の運用成績から判定する。判定に使う指標としきい値は未定であり、
-  #   ペーパートレードの実績が蓄積されるまで決められない。
-  #   DEVELOPMENT_PLAN.md 段階9「成績連動エモート」で決めるため、ここでは決めない。
+  # どれを表示するかは本ファイルでは決めません。
+  # 成績連動エモートは、performance データ（records/performance.*.yaml）を
+  # mood-rules.yaml で評価して決定します。
+  # 判定条件の唯一の正は mood-rules.yaml であり、ここには複製しません。
+  # 運用状態（IDLE / LADDERING などの state）は判定に使いません。
 
 # TODO: 状態別のセリフ（personality.md「状態別のセリフ」）を本ファイルに持たせるかは未定。
 #   現状は personality.md の一覧と status.yaml の mood が担っているため、
