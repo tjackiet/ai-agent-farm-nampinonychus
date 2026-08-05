@@ -54,6 +54,7 @@ cli:
     candles_daily: "bitbank candles {pair} --type=1day"
     candles_hourly: "bitbank candles {pair} --type=1hour"
     depth: "bitbank depth {pair}"
+    pairs: "bitbank pairs" # 数量の刻みと最小注文量。発注前の丸めに使う。
 
   account:
     assets: "bitbank paper assets"
@@ -122,7 +123,9 @@ risk:
     max_data_age_sec: 300 # 5分より古いデータでは判断しない
     require_price_source: true # 価格は必ず CLI 応答由来
 
-  states: [IDLE, LADDERING, HOLDING, HIBERNATING, HALTED]
+  # NOT_INITIALIZED は未稼働（ペーパートレード口座が未初期化）を表す初期状態。
+  # status.yaml の初期値と対応する。戦略上の状態遷移は IDLE から始まる。
+  states: [NOT_INITIALIZED, IDLE, LADDERING, HOLDING, HIBERNATING, HALTED]
 
 memory:
   root: memory/

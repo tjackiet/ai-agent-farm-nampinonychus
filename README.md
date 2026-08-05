@@ -23,17 +23,23 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 
 ```text
 .
+├── CLAUDE.md
 ├── README.md
 ├── agent.yaml
 ├── status.yaml
 ├── personality.md
 ├── strategy.md
 ├── risk-policy.md
-└── memory-policy.md
+├── memory-policy.md
+└── docs/
+    ├── PROJECT_ROADMAP.md
+    ├── REPOSITORY_PLAN.md
+    └── DEVELOPMENT_PLAN.md
 ```
 
 | ファイル          | 役割                                                             |
 | ----------------- | ---------------------------------------------------------------- |
+| `CLAUDE.md`       | 毎回必ず守る不変のルール                                         |
 | `agent.yaml`      | エージェント定義。**数値パラメータの唯一の正**                   |
 | `status.yaml`     | 現在の状態。15分ごとの実行で上書きされる                         |
 | `personality.md`  | 性格・行動原則・話し方                                           |
@@ -42,6 +48,16 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `memory-policy.md`| 記憶の構造と書き込みルール                                       |
 
 各 `.md` は「なぜその設計なのか」を説明する文書です。値が `agent.yaml` と食い違う場合は `agent.yaml` を優先します。
+
+`docs/` には、企画上の位置づけと計画をまとめています。
+
+| 文書                       | 役割                                             |
+| -------------------------- | ------------------------------------------------ |
+| `docs/PROJECT_ROADMAP.md`  | AIエージェントファーム企画全体の地図             |
+| `docs/REPOSITORY_PLAN.md`  | 本リポジトリの担当範囲。**実装範囲の唯一の正**   |
+| `docs/DEVELOPMENT_PLAN.md` | 開発順序と将来構想                               |
+
+本リポジトリが担当するのは、企画のうち**ナンピノニクス1個体ぶん**です。
 
 ## 設計の要点
 
@@ -64,15 +80,9 @@ bitbank paper init --jpy=1000000
 ## 現在の開発段階
 
 現在は、ナンピノニクスの性格・戦略・リスク制約・記憶方式を設計している段階です。
+（現在の段階は `agent.yaml` の `agent.phase` が示します）
 
-今後、以下を実装する予定です。
-
-1. CLIを利用した市場データ取得
-2. BUY・SELL・HOLDの判断
-3. ペーパートレード注文
-4. 判断ログと運用実績の保存
-5. ステータス画面とキャラクター表示
-6. 15分ごとの定期実行
+今後の開発順序は [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md) を参照してください。
 
 ## 注意事項
 
