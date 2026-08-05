@@ -27,6 +27,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── README.md
 ├── agent.yaml
 ├── status.yaml
+├── visual-profile.yaml
 ├── personality.md
 ├── strategy.md
 ├── risk-policy.md
@@ -42,6 +43,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `CLAUDE.md`       | 毎回必ず守る不変のルール                                         |
 | `agent.yaml`      | エージェント定義。**数値パラメータの唯一の正**                   |
 | `status.yaml`     | 現在の状態。15分ごとの実行で上書きされる                         |
+| `visual-profile.yaml` | 表示用プロフィール。性格・傾向・特性・技の静的データ         |
 | `personality.md`  | 性格・行動原則・話し方                                           |
 | `strategy.md`     | 判断ロジック。買い下がりの階段と決済条件                         |
 | `risk-policy.md`  | リスク制約。性格と矛盾した場合はこちらが優先                     |
