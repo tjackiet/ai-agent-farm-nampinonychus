@@ -1,0 +1,383 @@
+{
+  "package_schema_version": 1,
+  "generated_at": "2026-08-05T18:01:14+09:00",
+  "agent": {
+    "schema_version": 1,
+    "version": "1.0",
+    "agent": {
+      "id": "nampinonychus",
+      "name": "ナンピノニクス",
+      "name_en": "Nampinonychus",
+      "tagline": "下落を待ち、下落を買う",
+      "archetype": "contrarian-dca",
+      "phase": "design",
+      "documents": {
+        "personality": "personality.md",
+        "strategy": "strategy.md",
+        "risk_policy": "risk-policy.md",
+        "memory_policy": "memory-policy.md"
+      },
+      "status_file": "status.yaml",
+      "visual_profile_file": "visual-profile.yaml"
+    },
+    "runtime": {
+      "schedule": "*/15 * * * *",
+      "timezone": "Asia/Tokyo",
+      "max_runtime_sec": 120,
+      "on_error": "hold",
+      "dry_run": true
+    },
+    "market": {
+      "exchange": "bitbank",
+      "quote_currency": "jpy",
+      "pairs": [
+        "btc_jpy"
+      ]
+    },
+    "cli": {
+      "command": "bitbank",
+      "package": "bitbank-lab-cli",
+      "repo": "https://github.com/bitbankinc/bitbank-lab-cli",
+      "install": "npm i -g bitbank-lab-cli",
+      "global_flags": [
+        "--format=json",
+        "--machine"
+      ],
+      "mode": "paper",
+      "forbidden": [
+        "bitbank trade create-order",
+        "bitbank trade cancel-order",
+        "bitbank paper reset"
+      ],
+      "observe": {
+        "exchange_status": "bitbank status",
+        "circuit_break": "bitbank circuit-break {pair}",
+        "ticker": "bitbank ticker {pair}",
+        "candles_daily": "bitbank candles {pair} --type=1day",
+        "candles_hourly": "bitbank candles {pair} --type=1hour",
+        "depth": "bitbank depth {pair}",
+        "pairs": "bitbank pairs"
+      },
+      "account": {
+        "assets": "bitbank paper assets",
+        "pnl": "bitbank paper pnl --pair={pair}",
+        "active_orders": "bitbank paper active-orders",
+        "trade_history": "bitbank paper trade-history"
+      },
+      "act": {
+        "resolve_fills": "bitbank paper tick",
+        "create_order": "bitbank paper create-order --pair={pair} --side={side} --type={type} --price={price} --amount={amount}",
+        "cancel_order": "bitbank paper cancel-order --pair={pair} --order-id={order_id}"
+      },
+      "setup": {
+        "init_account": "bitbank paper init --jpy=1000000"
+      }
+    },
+    "capital": {
+      "initial_jpy": 1000000
+    },
+    "strategy": {
+      "anchor": {
+        "source": "candles_daily",
+        "lookback_days": 7,
+        "metric": "high"
+      },
+      "entry": {
+        "order_type": "limit",
+        "max_pending_buy_orders": 2,
+        "cooldown_hours_after_fill": 6,
+        "max_fills_per_day": 2
+      },
+      "ladder": {
+        "max_steps": 5,
+        "total_budget_jpy": 600000,
+        "steps": [
+          {
+            "step": 1,
+            "from": "anchor",
+            "drop_pct": 3.0,
+            "budget_jpy": 80000
+          },
+          {
+            "step": 2,
+            "from": "last_fill",
+            "drop_pct": 3.0,
+            "budget_jpy": 100000
+          },
+          {
+            "step": 3,
+            "from": "last_fill",
+            "drop_pct": 4.0,
+            "budget_jpy": 120000
+          },
+          {
+            "step": 4,
+            "from": "last_fill",
+            "drop_pct": 5.0,
+            "budget_jpy": 140000
+          },
+          {
+            "step": 5,
+            "from": "last_fill",
+            "drop_pct": 6.0,
+            "budget_jpy": 160000
+          }
+        ]
+      },
+      "exit": {
+        "order_type": "limit",
+        "take_profit": [
+          {
+            "level": 1,
+            "gain_pct": 3.0,
+            "sell_ratio": 0.5
+          },
+          {
+            "level": 2,
+            "gain_pct": 6.0,
+            "sell_ratio": 1.0
+          }
+        ],
+        "time_stop_days": 60
+      },
+      "no_chase": {
+        "enabled": true,
+        "rule": "現在価格がアンカー以上の間は新規買いを行わない"
+      }
+    },
+    "risk": {
+      "max_position_ratio": 0.6,
+      "min_cash_reserve_ratio": 0.2,
+      "per_order_max_jpy": 160000,
+      "drawdown": {
+        "halt_new_buys_pct": -15.0,
+        "forced_exit_pct": -25.0
+      },
+      "guards": {
+        "skip_on_circuit_break": true,
+        "skip_on_exchange_maintenance": true,
+        "max_data_age_sec": 300,
+        "require_price_source": true
+      },
+      "states": [
+        "NOT_INITIALIZED",
+        "IDLE",
+        "LADDERING",
+        "HOLDING",
+        "HIBERNATING",
+        "HALTED"
+      ]
+    },
+    "memory": {
+      "root": "memory/",
+      "decisions": {
+        "path": "memory/decisions/{date}.jsonl",
+        "retention_days": 90,
+        "read_last_n": 16
+      },
+      "daily": {
+        "path": "memory/daily/{date}.md",
+        "write_at": "23:50",
+        "read_last_n": 7
+      },
+      "lessons": {
+        "path": "memory/lessons.md",
+        "max_entries": 50,
+        "write_trigger": "position_closed"
+      },
+      "redact": [
+        "api_key",
+        "api_secret",
+        "profile_name"
+      ]
+    }
+  },
+  "visual_profile": {
+    "schema_version": 1,
+    "identity": {
+      "name": "ナンピノニクス",
+      "personality_tag": "押し目信者",
+      "strategy_tags": [
+        "逆張り",
+        "ナンピン"
+      ]
+    },
+    "tendency_scale": {
+      "risk": {
+        "min_label": "守り",
+        "max_label": "攻め"
+      },
+      "decision_speed": {
+        "min_label": "熟考",
+        "max_label": "即断"
+      },
+      "time_horizon": {
+        "min_label": "短期",
+        "max_label": "長期"
+      },
+      "adaptability": {
+        "min_label": "固定",
+        "max_label": "柔軟"
+      },
+      "memory": {
+        "min_label": "忘却",
+        "max_label": "執着"
+      }
+    },
+    "tendencies": {
+      "risk": 35,
+      "decision_speed": 30,
+      "time_horizon": 60,
+      "adaptability": 10,
+      "memory": 75
+    },
+    "traits": [
+      {
+        "name": "忍耐",
+        "description": "何日も何も買わずに待つ。待つことを損失と感じない。"
+      },
+      {
+        "name": "予想しない",
+        "description": "「まだ下がる」「そろそろ底だ」を判断材料にしない。見るのは価格と自分の建玉だけ。"
+      },
+      {
+        "name": "規律優先",
+        "description": "買いたいと思っても risk-policy.md が止めるなら止まる。「今回だけは」を認めない。"
+      }
+    ],
+    "skills": [
+      {
+        "name": "買い下がりの階段",
+        "description": "アンカーから -3% で1段目。以降は直前の約定から -3/-4/-5/-6% と間隔を広げ、5段・合計 600,000 JPY まで買い下がる。"
+      },
+      {
+        "name": "高値は追わない",
+        "description": "現在価格が直近7日の日足高値（アンカー）以上の間、新規買いを行わない。"
+      },
+      {
+        "name": "二段階利確",
+        "description": "平均取得単価 +3% で建玉の半分、+6% で残り全量を利確する。売り指値は常時板に置く。"
+      },
+      {
+        "name": "冬眠",
+        "description": "総資産が初期資金比 -15% を下回ると新規買いを全面停止する。利確の売り指値は維持する。"
+      }
+    ],
+    "creed": "下がったら、うれしい。",
+    "evolution": {
+      "stage_name": "初期形態",
+      "description": "小さく、弱そうで、不格好な未成熟個体",
+      "appearance": [
+        "小さい",
+        "未成熟で弱そう",
+        "少し不格好で、不器用で、不細工",
+        "完成された強者には見えない",
+        "今後の進化余地を感じられる"
+      ]
+    },
+    "character": {
+      "normal": "character/v{major}/normal.webp",
+      "down": "character/v{major}/down.webp",
+      "up": "character/v{major}/up.webp"
+    }
+  },
+  "status": {
+    "schema_version": 1,
+    "updated_at": null,
+    "run_id": null,
+    "state": "NOT_INITIALIZED",
+    "mood": "待機",
+    "account": {
+      "initial_jpy": 1000000,
+      "cash_jpy": null,
+      "equity_jpy": null,
+      "drawdown_pct": null
+    },
+    "market": {
+      "pair": "btc_jpy",
+      "last_price": null,
+      "anchor_price": null,
+      "drop_from_anchor_pct": null,
+      "source": null,
+      "fetched_at": null
+    },
+    "position": {
+      "amount": 0,
+      "avg_cost_jpy": null,
+      "cost_basis_jpy": 0,
+      "unrealized_pnl_jpy": null,
+      "unrealized_pnl_pct": null,
+      "opened_at": null,
+      "age_days": null
+    },
+    "ladder": {
+      "step": 0,
+      "max_steps": 5,
+      "used_budget_jpy": 0,
+      "total_budget_jpy": 600000,
+      "last_fill_price_jpy": null,
+      "last_fill_at": null,
+      "cooldown_until": null
+    },
+    "orders": {
+      "pending_buy": [],
+      "pending_sell": []
+    },
+    "last_decision": {
+      "action": null,
+      "reason": null,
+      "at": null
+    },
+    "counters": {
+      "fills_today": 0,
+      "total_fills": 0,
+      "closed_positions": 0,
+      "realized_pnl_jpy": 0
+    },
+    "notes": "設計段階のため未稼働。ペーパートレード口座は未初期化。"
+  },
+  "mood_rules": {
+    "schema_version": 1,
+    "evaluation_order": [
+      "down",
+      "up",
+      "normal"
+    ],
+    "rules": {
+      "down": {
+        "any": {
+          "pnl_24h_pct_lte": -2,
+          "consecutive_losses_gte": 3,
+          "current_drawdown_from_peak_pct_gte": 5
+        }
+      },
+      "up": {
+        "any": {
+          "pnl_24h_pct_gte": 2,
+          "consecutive_wins_gte": 3
+        }
+      }
+    },
+    "default": "normal"
+  },
+  "performance": {
+    "schema_version": 1,
+    "agent_id": "nampinonychus",
+    "agent_version": "1.0",
+    "recorded_at": "2026-01-01T00:00:00+09:00",
+    "source": "sample",
+    "initial_equity_jpy": 1000000,
+    "current_equity_jpy": 976000,
+    "total_pnl_pct": -2.4,
+    "pnl_24h_pct": -2.1,
+    "current_drawdown_from_peak_pct": 4.8,
+    "trades_24h": 2,
+    "consecutive_wins": 0,
+    "consecutive_losses": 3
+  },
+  "assets": {
+    "normal": null,
+    "down": null,
+    "up": null
+  }
+}

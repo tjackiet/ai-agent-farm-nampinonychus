@@ -35,9 +35,14 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── memory-policy.md
 ├── records/
 │   └── performance.sample.yaml
+├── scripts/
+│   └── export_agent_package.py
+├── examples/
+│   └── nampinonychus.sample.agent.json
 └── docs/
     ├── PROJECT_ROADMAP.md
     ├── REPOSITORY_PLAN.md
+    ├── IMPLEMENTATION_PLAN.md
     └── DEVELOPMENT_PLAN.md
 ```
 
@@ -49,6 +54,8 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `visual-profile.yaml` | 表示用プロフィール。性格・傾向・特性・技の静的データ         |
 | `mood-rules.yaml` | 成績連動エモートの判定ルール。実績から `normal` / `down` / `up` を決める |
 | `records/performance.sample.yaml` | ペーパートレード実績のサンプル。**実際の運用結果ではない** |
+| `scripts/export_agent_package.py` | 表示用パッケージ（`*.agent.json`）のエクスポート処理 |
+| `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ。**生成物であり手で編集しない** |
 | `personality.md`  | 性格・行動原則・話し方                                           |
 | `strategy.md`     | 判断ロジック。買い下がりの階段と決済条件                         |
 | `risk-policy.md`  | リスク制約。性格と矛盾した場合はこちらが優先                     |
@@ -58,11 +65,12 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 
 `docs/` には、企画上の位置づけと計画をまとめています。
 
-| 文書                       | 役割                                             |
-| -------------------------- | ------------------------------------------------ |
-| `docs/PROJECT_ROADMAP.md`  | AIエージェントファーム企画全体の地図             |
-| `docs/REPOSITORY_PLAN.md`  | 本リポジトリの担当範囲。**実装範囲の唯一の正**   |
-| `docs/DEVELOPMENT_PLAN.md` | 開発順序と将来構想                               |
+| 文書                          | 役割                                             |
+| ----------------------------- | ------------------------------------------------ |
+| `docs/PROJECT_ROADMAP.md`     | AIエージェントファーム企画全体の地図             |
+| `docs/REPOSITORY_PLAN.md`     | 本リポジトリの担当範囲。**実装範囲の唯一の正**   |
+| `docs/IMPLEMENTATION_PLAN.md` | 今後の全体設計と実装順序。**実装順序の正**       |
+| `docs/DEVELOPMENT_PLAN.md`    | 構想段階の旧計画（記録として保存）               |
 
 本リポジトリが担当するのは、企画のうち**ナンピノニクス1個体ぶん**です。
 
@@ -169,6 +177,23 @@ HTML ステータス画面は、`agent.yaml` の `version` から `major` を読
 
 リポジトリが持つのは判定ルールとサンプルであり、稼働中の実績そのものはリポジトリの更新頻度と切り離します。
 
+## 表示用パッケージ
+
+Claude Desktop の HTML Artifact へは、正本の YAML とキャラクター画像を1つの JSON（`*.agent.json`）にまとめて渡します。生成は `scripts/export_agent_package.py` が行います（要 Python 3.9+ / PyYAML）。
+
+```bash
+# サンプル（records/performance.sample.yaml を使用）→ examples/ へ
+python3 scripts/export_agent_package.py --sample
+
+# 実運用（records/performance.yaml を使用）→ dist/ へ（Git 管理外）
+python3 scripts/export_agent_package.py
+```
+
+- JSON は正本から生成される派生物です。手で直すのは常に正本側とし、JSON は再生成します。
+- キャラクター画像が存在しない間は、`assets` の各値は `null` になります（エラーにしません）。
+- エモート判定に `status` は使いません。判定は `performance` と `mood_rules` だけで行います。
+- 構造の詳細は [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) の「6. Artifact への入力を1ファイルにまとめる」を参照してください。
+
 ## 利用予定のツール
 
 市場データの取得とペーパートレードには、以下のCLIを利用します。
@@ -185,7 +210,7 @@ bitbank paper init --jpy=1000000
 現在は、ナンピノニクスの性格・戦略・リスク制約・記憶方式を設計している段階です。
 （現在の段階は `agent.yaml` の `agent.phase` が示します）
 
-今後の開発順序は [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md) を参照してください。
+今後の実装順序は [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) を参照してください。
 
 ## 注意事項
 
