@@ -19,6 +19,9 @@ agent:
     risk_policy: risk-policy.md
     memory_policy: memory-policy.md
   status_file: status.yaml
+  # 表示用の静的プロフィール（性格・傾向・特性・技）。参照のみ。
+  # 数値パラメータの正は本ファイルであり、visual-profile.yaml は表示のための要約です。
+  visual_profile_file: visual-profile.yaml
 
 runtime:
   schedule: "*/15 * * * *" # 15分ごと

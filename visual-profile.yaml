@@ -1,0 +1,106 @@
+# ナンピノニクスの表示用プロフィール
+#
+# 将来の HTML ステータス画面が読み込む、静的な表示データです。
+# 性格・傾向・特性・技など「変わらないもの」だけを置きます。
+#
+# - 口座・建玉・損益・階段の段数といった動的な運用状態は `status.yaml` が持ちます。
+#   本ファイルは運用状態を一切持ちません。
+# - 数値パラメータの正は `agent.yaml` です。本ファイルの値は表示のための要約であり、
+#   売買判断には使いません。食い違う場合は常に `agent.yaml` を優先します。
+# - 各値の根拠は行コメントに残しています。
+# - 本ファイルの値をエージェント自身が書き換えません。変更は人間が判断します（`CLAUDE.md`）。
+
+version: 1
+
+identity:
+  name: ナンピノニクス # agent.yaml agent.name
+  personality_tag: 逆張り・ナンピン型 # agent.yaml agent.archetype (contrarian-dca)
+  strategy_tags: # strategy.md / agent.yaml strategy
+    - アンカー基準の逆張り # strategy.no_chase「現在価格がアンカー以上の間は新規買いを行わない」
+    - 5段の買い下がり # strategy.ladder.max_steps: 5
+    - 指値主体 # strategy.entry.order_type: limit
+    - 二段階利確 # strategy.exit.take_profit（+3% で半分 / +6% で残り）
+    - 60日で時間切れ手仕舞い # strategy.exit.time_stop_days: 60
+
+# 各軸の 0 と 100 の意味。HTML 側に軸ラベルを持たせないため、ここで定義します。
+tendency_scale:
+  risk: { min_label: 守り, max_label: 攻め }
+  decision_speed: { min_label: 熟考, max_label: 即断 }
+  time_horizon: { min_label: 短期, max_label: 長期 }
+  adaptability: { min_label: 固定, max_label: 柔軟 }
+  memory: { min_label: 忘却, max_label: 執着 }
+
+# すべて 0〜100。意味は tendency_scale のとおり。
+#
+# TODO: 以下は設計段階（agent.yaml agent.phase: design）の初期案です。
+#   ペーパートレードの実績が出たあとに見直す余地がありますが、
+#   見直すかどうかは人間が判断します。エージェント自身は書き換えません。
+tendencies:
+  # personality.md「リスク許容度 5/10」を基準（= 50）に、risk-policy.md の上限
+  # （建玉は初期資金の 60% まで／現金 20% は常時維持／6段目は存在しない／
+  # 予算を倍々にするマーチンゲールは採らない）を反映して守り側へ寄せた。
+  risk: 35
+
+  # personality.md「決断速度 3/10」をそのまま採用（3/10 → 30）。
+  # 約定後6時間のクールダウン、1日2回までの約定制限とも整合する。
+  decision_speed: 30
+
+  # 建玉の保有上限が 60 日（strategy.exit.time_stop_days）で、それ以上は持たない。
+  # 一方で personality.md「忍耐力 9/10」により日計りもしない。中期寄りの中庸。
+  time_horizon: 60
+
+  # personality.md「規律 10/10」「ルールにない買い増しをしない」の裏返し。
+  # ただしアンカーを毎回計算し直す（相場に合わせて基準そのものは動く）ため 0 ではない。
+  adaptability: 10
+
+  # memory-policy.md：日次サマリと lessons.md は削除しない（無期限保持）。
+  # 一方で判断ログは 90 日で削除し、lessons.md も 50 件で統合するため 100 ではない。
+  memory: 75
+
+traits:
+  - name: 忍耐
+    description: 何日も何も買わずに待つ。待つことを損失と感じない。
+    # personality.md 性格パラメータ「忍耐力 9/10」
+
+  - name: 予想しない
+    description: 「まだ下がる」「そろそろ底だ」を判断材料にしない。見るのは価格と自分の建玉だけ。
+    # personality.md「相場観への自信 2/10」／行動原則4「予想しない」
+
+  - name: 規律優先
+    description: 買いたいと思っても risk-policy.md が止めるなら止まる。「今回だけは」を認めない。
+    # personality.md「規律 10/10」／「両者が矛盾したときは、常に risk-policy.md が勝つ」
+
+skills:
+  - name: 買い下がりの階段
+    description: アンカーから -3% で1段目。以降は直前の約定から -3/-4/-5/-6% と間隔を広げ、5段・合計 600,000 JPY まで買い下がる。
+    # agent.yaml strategy.ladder
+
+  - name: 高値は追わない
+    description: 現在価格が直近7日の日足高値（アンカー）以上の間、新規買いを行わない。
+    # agent.yaml strategy.no_chase / strategy.anchor
+
+  - name: 二段階利確
+    description: 平均取得単価 +3% で建玉の半分、+6% で残り全量を利確する。売り指値は常時板に置く。
+    # agent.yaml strategy.exit.take_profit
+
+  - name: 冬眠
+    description: 総資産が初期資金比 -15% を下回ると新規買いを全面停止する。利確の売り指値は維持する。
+    # agent.yaml risk.drawdown.halt_new_buys_pct / risk-policy.md HIBERNATING
+
+# personality.md「一言でいうと」。
+# agent.yaml の tagline「下落を待ち、下落を買う」を、情緒の側から言い換えたもの。
+creed: 下がったら、うれしい。
+
+# キャラクター画像。画像はまだ作成しておらず、置き場所だけを定義します。
+character:
+  normal: character/normal.webp
+  down: character/down.webp
+  up: character/up.webp
+  # TODO: normal / down / up の切り替え条件は未定。
+  #   候補は status.yaml の state（IDLE / LADDERING / HOLDING / HIBERNATING / HALTED）、
+  #   account.drawdown_pct、position.unrealized_pnl_pct のいずれか、またはその組み合わせ。
+  #   DEVELOPMENT_PLAN.md 段階9「成績連動エモート」で決めるため、ここでは決めない。
+
+# TODO: 状態別のセリフ（personality.md「状態別のセリフ」）を本ファイルに持たせるかは未定。
+#   現状は personality.md の一覧と status.yaml の mood が担っているため、
+#   二重管理を避けてここには置いていない。
