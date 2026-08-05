@@ -10,7 +10,9 @@
 # - 各値の根拠は行コメントに残しています。
 # - 本ファイルの値をエージェント自身が書き換えません。変更は人間が判断します。
 
-version: 1
+# 本ファイルの形式の版。エージェント本体のバージョンではありません。
+# エージェントのバージョンは agent.yaml の version だけが持ちます（唯一の正）。
+schema_version: 1
 
 identity:
   name: ナンピノニクス # agent.yaml agent.name
@@ -89,11 +91,43 @@ skills:
 # agent.yaml の tagline「下落を待ち、下落を買う」を、情緒の側から言い換えたもの。
 creed: 下がったら、うれしい。
 
+# 現在のキャラクター形態の説明。
+#
+# 進化段階の番号は持ちません。段階の番号は agent.yaml version の major そのものです。
+# 表示側は agent.yaml から major を読み取り、本セクションを「その形態の説明」として
+# 表示します。major が上がったときにだけ次の形態へ進化します（= 見た目そのものが
+# 変わる）。minor の更新では進化しません。本セクションは人間が書き換えます。
+#
+# 進化はアップデートやメンテナンスによる外見の変化であり、
+# 強さや運用成績を表しません。成績による変化は character の
+# normal / down / up（成績連動エモート）が担い、進化とは分離します。
+evolution:
+  stage_name: 初期形態 # v1.x は必ず初期形態。
+  description: 小さく、弱そうで、不格好な未成熟個体
+
+  # 初期形態が満たすべき外見の条件。v1.x の間は変わりません。
+  appearance:
+    - 小さい
+    - 未成熟で弱そう
+    - 少し不格好で、不器用で、不細工
+    - 完成された強者には見えない
+    - 今後の進化余地を感じられる
+
 # キャラクター画像。画像はまだ作成しておらず、置き場所だけを定義します。
+# 画像は形態ごとに分けて置きます。
+#
+# `{major}` は agent.yaml version の major に置き換えます
+# （agent.yaml の {pair} / {date} と同じ書き方です）。
+# ここに v1 と直接書かないのは、major を2か所に持たないためです。
+# v1.x の間はすべて character/v1/ が使われ、major が上がった時点で
+# character/v2/ を作って画像を置きます。過去の形態の画像は消しません。
 character:
-  normal: character/normal.webp
-  down: character/down.webp
-  up: character/up.webp
+  normal: "character/v{major}/normal.webp"
+  down: "character/v{major}/down.webp"
+  up: "character/v{major}/up.webp"
+  # normal / down / up は同じバージョン内での表情差分（成績連動エモート）であり、
+  # 形態そのものの変化（evolution）とは別のものです。
+  #
   # TODO: normal / down / up は、運用状態（IDLE / LADDERING などの state）ではなく、
   #   将来の運用成績から判定する。判定に使う指標としきい値は未定であり、
   #   ペーパートレードの実績が蓄積されるまで決められない。
