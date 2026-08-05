@@ -28,6 +28,11 @@ evaluation_order:
 #   `_lte` = その値以下 (<=) ／ `_gte` = その値以上 (>=)
 # 単位は `_pct` が百分率、それ以外は回数です。
 #
+# `current_drawdown_from_peak_pct` は、**過去最高資産から現在までの下落率を
+# 正の数で表した値**です（5 なら 5% の下落）。`status.yaml` の
+# `account.drawdown_pct`（初期資金比・マイナスで表す）とは意味・符号・基準点が
+# 異なる別の値です。取り違えると判定が反転するため、名前で区別します。
+#
 # 実績側の値が null（未観測）の条件は、満たしていないものとして扱います。
 # 観測していない値で表情を動かさないためです。
 rules:
@@ -35,7 +40,7 @@ rules:
     any:
       pnl_24h_pct_lte: -2 # 直近24時間の損益率が -2% 以下
       consecutive_losses_gte: 3 # 3連敗以上
-      drawdown_pct_gte: 5 # 現在のドローダウンが 5% 以上（正の数で比較）
+      current_drawdown_from_peak_pct_gte: 5 # 現在のドローダウンが 5% 以上
 
   up:
     any:

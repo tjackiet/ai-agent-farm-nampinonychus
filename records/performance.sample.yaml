@@ -28,11 +28,16 @@ current_equity_jpy: 976000
 total_pnl_pct: -2.4 # 初期資産比の累計。(976000 - 1000000) / 1000000 * 100
 pnl_24h_pct: -2.1 # 直近24時間
 
-# 現在のドローダウン。**最高値からの下落率を正の数で持ちます。**
+# 現在のドローダウン。**過去最高資産から現在までの下落率を正の数で表します**
+# （4.8 なら 4.8% の下落）。
+#
 # `status.yaml` の `account.drawdown_pct`（初期資金比・マイナスで表す）とは
-# 基準点も符号も異なります。`mood-rules.yaml` の `drawdown_pct_gte` は本項目を見ます。
-# 4.8% は、最高値が約 1,025,210 JPY まで伸びたあとに 976,000 JPY まで下げた状態。
-drawdown_pct: 4.8
+# 意味・符号・基準点が異なる別の値です。取り違えると判定が反転するため、
+# 同じ名前を使わず `current_drawdown_from_peak_pct` としています。
+# `mood-rules.yaml` の `current_drawdown_from_peak_pct_gte` は本項目を見ます。
+#
+# 4.8% は、過去最高資産が約 1,025,210 JPY まで伸びたあとに 976,000 JPY まで下げた状態。
+current_drawdown_from_peak_pct: 4.8
 
 trades_24h: 2 # 直近24時間の取引回数
 
