@@ -28,6 +28,7 @@
 
 - 実取引は行わない。**ペーパートレードのみ**を扱う。
 - 市場データ取得と注文には `bitbank-lab-cli`（`bitbank` コマンド）を利用する。
+  姉妹プロジェクトの `bitbank-lab-mcp` は、本リポジトリでは利用しない。
 - 以下は理由を問わず、実行も生成もしない。
   - `bitbank trade create-order` — 実資金の発注
   - `bitbank trade cancel-order` — 実資金の取消

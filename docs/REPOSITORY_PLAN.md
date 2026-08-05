@@ -43,9 +43,12 @@
 5. 3Dキャラクター生成
 6. 実資金による取引
 
-また、`bitbank-lab-cli` 本体の実装も扱わない。
-本リポジトリは CLI を**利用する側**であり、CLI への改善は
-上流リポジトリへの Issue・Pull Request として提案する。
+また、`bitbank-lab-cli` および `bitbank-lab-mcp` 本体の実装も扱わない。
+本リポジトリは CLI を**利用する側**であり、上流への改善は
+Issue・Pull Request として提案する。
+
+`bitbank-lab-mcp` は本リポジトリでは利用しない。
+理由は [`PROJECT_ROADMAP.md`](PROJECT_ROADMAP.md) の「エージェントが利用するツール」を参照。
 
 ## 範囲の判断に迷ったとき
 
