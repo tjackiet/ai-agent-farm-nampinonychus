@@ -1,0 +1,144 @@
+# ナンピノニクス エージェント定義
+#
+# このファイルが数値パラメータの唯一の正 (single source of truth) です。
+# 各 .md は「なぜその値なのか」を説明する文書であり、
+# 値が食い違う場合は常に本ファイルを優先します。
+
+version: 1
+
+agent:
+  id: nampinonychus
+  name: ナンピノニクス
+  name_en: Nampinonychus
+  tagline: 下落を待ち、下落を買う
+  archetype: contrarian-dca # 逆張り・ナンピン型
+  phase: design # design | paper | halted
+  documents:
+    personality: personality.md
+    strategy: strategy.md
+    risk_policy: risk-policy.md
+    memory_policy: memory-policy.md
+  status_file: status.yaml
+
+runtime:
+  schedule: "*/15 * * * *" # 15分ごと
+  timezone: Asia/Tokyo
+  max_runtime_sec: 120 # 1回の判断にかける上限
+  on_error: hold # 例外・不明時は必ず HOLD（発注しない）
+  dry_run: true # 設計段階では発注コマンドを組み立てるのみ
+
+market:
+  exchange: bitbank
+  quote_currency: jpy
+  pairs:
+    - btc_jpy # 第1段階は btc_jpy のみ
+
+cli:
+  command: bitbank
+  package: bitbank-lab-cli
+  repo: https://github.com/bitbankinc/bitbank-lab-cli
+  install: "npm i -g bitbank-lab-cli"
+  global_flags: ["--format=json", "--machine"]
+  mode: paper # ペーパートレードのみ
+
+  # 実行してはならないコマンド（実資金・実績破壊）
+  forbidden:
+    - "bitbank trade create-order"
+    - "bitbank trade cancel-order"
+    - "bitbank paper reset"
+
+  observe:
+    exchange_status: "bitbank status"
+    circuit_break: "bitbank circuit-break {pair}"
+    ticker: "bitbank ticker {pair}"
+    candles_daily: "bitbank candles {pair} --type=1day"
+    candles_hourly: "bitbank candles {pair} --type=1hour"
+    depth: "bitbank depth {pair}"
+
+  account:
+    assets: "bitbank paper assets"
+    pnl: "bitbank paper pnl --pair={pair}"
+    active_orders: "bitbank paper active-orders"
+    trade_history: "bitbank paper trade-history"
+
+  act:
+    resolve_fills: "bitbank paper tick"
+    create_order: "bitbank paper create-order --pair={pair} --side={side} --type={type} --price={price} --amount={amount}"
+    cancel_order: "bitbank paper cancel-order --pair={pair} --order-id={order_id}"
+
+  setup:
+    init_account: "bitbank paper init --jpy=1000000"
+
+capital:
+  initial_jpy: 1000000
+
+strategy:
+  # 基準価格（アンカー）＝直近7日の日足高値
+  anchor:
+    source: candles_daily
+    lookback_days: 7
+    metric: high
+
+  entry:
+    order_type: limit # 指値主体（paper tick が 1分足で約定判定）
+    max_pending_buy_orders: 2 # 未約定の買い指値は同時に2本まで
+    cooldown_hours_after_fill: 6 # 約定後、次の段を出すまでの待機
+    max_fills_per_day: 2
+
+  # 買い下がりの階段。from は下落率の基準点。
+  ladder:
+    max_steps: 5
+    total_budget_jpy: 600000
+    steps:
+      - { step: 1, from: anchor, drop_pct: 3.0, budget_jpy: 80000 }
+      - { step: 2, from: last_fill, drop_pct: 3.0, budget_jpy: 100000 }
+      - { step: 3, from: last_fill, drop_pct: 4.0, budget_jpy: 120000 }
+      - { step: 4, from: last_fill, drop_pct: 5.0, budget_jpy: 140000 }
+      - { step: 5, from: last_fill, drop_pct: 6.0, budget_jpy: 160000 }
+
+  exit:
+    order_type: limit
+    take_profit: # 平均取得単価からの上昇率
+      - { level: 1, gain_pct: 3.0, sell_ratio: 0.5 }
+      - { level: 2, gain_pct: 6.0, sell_ratio: 1.0 }
+    time_stop_days: 60 # 建玉の保有上限。超過で全量手仕舞い。
+
+  no_chase:
+    enabled: true
+    rule: "現在価格がアンカー以上の間は新規買いを行わない"
+
+risk:
+  max_position_ratio: 0.60 # 取得原価合計 / 初期資金
+  min_cash_reserve_ratio: 0.20 # 常に残す現金比率
+  per_order_max_jpy: 160000
+
+  drawdown: # 総資産の初期比
+    halt_new_buys_pct: -15.0 # 冬眠（新規買い停止・利確注文は維持）
+    forced_exit_pct: -25.0 # 全建玉を成行で手仕舞い、停止
+
+  guards:
+    skip_on_circuit_break: true
+    skip_on_exchange_maintenance: true
+    max_data_age_sec: 300 # 5分より古いデータでは判断しない
+    require_price_source: true # 価格は必ず CLI 応答由来
+
+  states: [IDLE, LADDERING, HOLDING, HIBERNATING, HALTED]
+
+memory:
+  root: memory/
+  decisions:
+    path: "memory/decisions/{date}.jsonl"
+    retention_days: 90
+    read_last_n: 16 # 直近4時間分を毎回読む
+  daily:
+    path: "memory/daily/{date}.md"
+    write_at: "23:50"
+    read_last_n: 7
+  lessons:
+    path: memory/lessons.md
+    max_entries: 50
+    write_trigger: position_closed
+  redact: # 記憶に書き込んではならない値
+    - api_key
+    - api_secret
+    - profile_name
