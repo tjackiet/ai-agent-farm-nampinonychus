@@ -45,6 +45,8 @@
 | 10  | Claude Desktop の HTML Artifact   | YAML を読み込み、ステータス表示とエモート判定ができる      |
 | 11  | `scripts/export_agent_package.py` | 表示用パッケージのエクスポート処理（Phase 1）              |
 | 12  | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ            |
+| 13  | `nampinonychus/`                  | エージェント本体。観測 → 判断 → 発注 → 記録が1周する（Phase 6） |
+| 14  | `tests/`                          | 判断ロジックとガードのテスト（`python3 -m unittest discover -s tests -t .`） |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
@@ -346,6 +348,16 @@ Artifact で、実績から判定されたエモート画像が表示される�
 3. `bitbank paper init --jpy=1000000` で口座を初期化する
 
 `version` は Phase 6 が一周するまで `1.0` に据え置く（本書「10. 未確定事項」）。
+
+#### 実装して分かったこと
+
+- **板に置ける買い指値は常に1本になる。** 2段目以降の指値価格は直前の約定価格から
+  決まるため、1段目が約定するまで2段目の価格が確定しない。
+  `max_pending_buy_orders` の 2 は上限として残る（`strategy.md`「ペース制御」）。
+- **アンカーには当日の未確定足を含める。** 含めることで、7日高値の更新中は
+  現在価格がアンカーと等しくなり `no_chase` が働く（`strategy.md`「アンカー価格」）。
+- **経過時間は単調時計で測る。** 判断に使う時刻（`now`）と実行時間は別物であり、
+  混ぜるとテストで時刻を注入できない。
 
 #### テスト方針
 
