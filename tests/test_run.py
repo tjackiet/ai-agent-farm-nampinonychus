@@ -61,7 +61,7 @@ class CycleTest(unittest.TestCase):
         return run_once(cfg, client, NOW, repo_root=self.root)
 
     def read_journal(self) -> list[dict]:
-        path = self.root / "memory" / "decisions" / "2026-08-18.jsonl"
+        path = self.root / "var" / "memory" / "decisions" / "2026-08-18.jsonl"
         if not path.exists():
             return []
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
@@ -87,15 +87,23 @@ class CycleTest(unittest.TestCase):
 
     def test_status_yamlを書き出す(self):
         self.run_cycle(FakeCli(default_responses()))
-        document = yaml.safe_load((self.root / "status.yaml").read_text(encoding="utf-8"))
+        document = yaml.safe_load((self.root / "var" / "status.yaml").read_text(encoding="utf-8"))
         self.assertEqual(document["state"], "IDLE")
         self.assertEqual(document["market"]["anchor_price"], 15000000.0)
         self.assertEqual(document["account"]["cash_jpy"], 1000000.0)
 
+    def test_リポジトリのstatus_yamlは書き換えない(self):
+        """実行のたびに作業ツリーが汚れると、運用中に git の操作が止まる。"""
+        sample = self.root / "status.yaml"
+        sample.write_text("# スキーマの見本\n", encoding="utf-8")
+        self.run_cycle(FakeCli(default_responses()))
+        self.assertEqual(sample.read_text(encoding="utf-8"), "# スキーマの見本\n")
+        self.assertTrue((self.root / "var" / "status.yaml").is_file())
+
     def test_価格の出典はtickerである(self):
         """判断に使った数値には、その数値を返したコマンドを添える（CLAUDE.md）。"""
         self.run_cycle(FakeCli(default_responses()))
-        document = yaml.safe_load((self.root / "status.yaml").read_text(encoding="utf-8"))
+        document = yaml.safe_load((self.root / "var" / "status.yaml").read_text(encoding="utf-8"))
         self.assertIn("ticker", document["market"]["source"])
         self.assertNotIn("status", document["market"]["source"])
 
@@ -105,7 +113,7 @@ class CycleTest(unittest.TestCase):
         self.assertEqual(cycle.action, "HOLD")
         self.assertIsNotNone(cycle.error)
         self.assertFalse(cycle.status_written)
-        self.assertFalse((self.root / "status.yaml").exists())
+        self.assertFalse((self.root / "var" / "status.yaml").exists())
         # 失敗しても判断ログは残す
         self.assertEqual(len(self.read_journal()), 1)
 
@@ -170,7 +178,7 @@ class CycleTest(unittest.TestCase):
         cycle = self.run_cycle(fake, config)
         self.assertEqual(cycle.action, "HOLD")
         self.assertIsNotNone(cycle.error)
-        self.assertFalse((self.root / "status.yaml").exists())
+        self.assertFalse((self.root / "var" / "status.yaml").exists())
 
 
 if __name__ == "__main__":

@@ -39,7 +39,10 @@ agent:
     strategy: strategy.md
     risk_policy: risk-policy.md
     memory_policy: memory-policy.md
+  # スキーマの見本。実行では書き換えない（人間と Artifact が形を確認するためのもの）。
   status_file: status.yaml
+  # 実行のたびに書き出すスナップショット。運用の産物であり Git 管理外。
+  status_output: var/status.yaml
   # 表示用の静的プロフィール（性格・傾向・特性・技）。参照のみ。
   # 数値パラメータの正は本ファイルであり、visual-profile.yaml は表示のための要約です。
   visual_profile_file: visual-profile.yaml
@@ -169,17 +172,19 @@ risk:
   states: [NOT_INITIALIZED, IDLE, LADDERING, HOLDING, HIBERNATING, HALTED]
 
 memory:
-  root: memory/
+  # 運用の記録は var/ 配下に置く。実行のたびに作業ツリーが汚れると、
+  # 15分ごとの運用で git の操作が止まるため（Git 管理外）。
+  root: var/memory/
   decisions:
-    path: "memory/decisions/{date}.jsonl"
+    path: "var/memory/decisions/{date}.jsonl"
     retention_days: 90
     read_last_n: 16 # 直近4時間分を毎回読む
   daily:
-    path: "memory/daily/{date}.md"
+    path: "var/memory/daily/{date}.md"
     write_at: "23:50"
     read_last_n: 7
   lessons:
-    path: memory/lessons.md
+    path: var/memory/lessons.md
     max_entries: 50
     write_trigger: position_closed
   redact: # 記憶に書き込んではならない値

@@ -54,6 +54,10 @@ SOURCE_FILES = {
     "mood_rules": "mood-rules.yaml",
 }
 
+# 実運用のスナップショット（Git 管理外）。存在すればリポジトリの status.yaml より優先する。
+# リポジトリの status.yaml はスキーマの見本であり、運用中の値は入っていない。
+RUNTIME_STATUS = "var/status.yaml"
+
 MIME_TYPES = {
     ".webp": "image/webp",
     ".png": "image/png",
@@ -141,6 +145,12 @@ def main() -> None:
     args = parser.parse_args()
 
     sections = {key: load_yaml(REPO_ROOT / name) for key, name in SOURCE_FILES.items()}
+
+    # サンプル以外では、実行が書き出したスナップショットがあればそちらを使う。
+    runtime_status = REPO_ROOT / RUNTIME_STATUS
+    if not args.sample and runtime_status.is_file():
+        sections["status"] = load_yaml(runtime_status)
+        print(f"status は {rel(runtime_status)} を使います")
 
     if args.performance is not None:
         performance_path = (

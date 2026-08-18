@@ -177,7 +177,8 @@ def run_once(
             price_source=market.source_cmd if market is not None else None,
         )
         root = repo_root if repo_root is not None else config_module.REPO_ROOT
-        state_module.write_status(document, root / "status.yaml")
+        # 書き出し先は Git 管理外。リポジトリの status.yaml は見本として触らない。
+        state_module.write_status(document, root / cfg.status_output)
         status_written = True
 
     return Cycle(

@@ -1,6 +1,6 @@
 {
   "package_schema_version": 1,
-  "generated_at": "2026-08-19T00:21:48+09:00",
+  "generated_at": "2026-08-19T08:54:13+09:00",
   "agent": {
     "schema_version": 1,
     "version": "1.0",
@@ -18,6 +18,7 @@
         "memory_policy": "memory-policy.md"
       },
       "status_file": "status.yaml",
+      "status_output": "var/status.yaml",
       "visual_profile_file": "visual-profile.yaml"
     },
     "runtime": {
@@ -172,19 +173,19 @@
       ]
     },
     "memory": {
-      "root": "memory/",
+      "root": "var/memory/",
       "decisions": {
-        "path": "memory/decisions/{date}.jsonl",
+        "path": "var/memory/decisions/{date}.jsonl",
         "retention_days": 90,
         "read_last_n": 16
       },
       "daily": {
-        "path": "memory/daily/{date}.md",
+        "path": "var/memory/daily/{date}.md",
         "write_at": "23:50",
         "read_last_n": 7
       },
       "lessons": {
-        "path": "memory/lessons.md",
+        "path": "var/memory/lessons.md",
         "max_entries": 50,
         "write_trigger": "position_closed"
       },

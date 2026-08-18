@@ -122,6 +122,7 @@ class Config:
     skip_on_exchange_maintenance: bool
     max_data_age_sec: int
 
+    status_output: str
     decisions_path: str
     decisions_read_last_n: int
 
@@ -214,6 +215,7 @@ def load(path: Path | str | None = None) -> Config:
         skip_on_circuit_break=_bool(raw, "risk.guards.skip_on_circuit_break"),
         skip_on_exchange_maintenance=_bool(raw, "risk.guards.skip_on_exchange_maintenance"),
         max_data_age_sec=_int(raw, "risk.guards.max_data_age_sec"),
+        status_output=_str(raw, "agent.status_output"),
         decisions_path=_str(raw, "memory.decisions.path"),
         decisions_read_last_n=_int(raw, "memory.decisions.read_last_n"),
         raw=raw,
