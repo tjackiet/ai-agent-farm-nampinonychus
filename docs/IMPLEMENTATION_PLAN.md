@@ -46,7 +46,7 @@
 | 11  | `scripts/export_agent_package.py` | 表示用パッケージのエクスポート処理（Phase 1）              |
 | 12  | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ            |
 | 13  | `nampinonychus/`                  | エージェント本体。観測 → 判断 → 発注 → 記録が1周する（Phase 6） |
-| 14  | `tests/`                          | 判断ロジックとガードのテスト（`python3 -m unittest discover -s tests -t .`） |
+| 14  | `tests/`                          | 判断ロジックとガードのテスト（実行方法は `README.md`「セットアップ」） |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
