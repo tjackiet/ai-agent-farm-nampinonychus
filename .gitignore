@@ -5,3 +5,7 @@ dist/
 # ペーパートレード口座の状態ファイル（agent.yaml の cli.state_path）。
 # 運用実績そのものであり、派生物ではない。バックアップは別途行う。
 var/
+
+# Python の中間生成物
+__pycache__/
+*.pyc

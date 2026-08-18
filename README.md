@@ -33,6 +33,8 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── strategy.md
 ├── risk-policy.md
 ├── memory-policy.md
+├── nampinonychus/          # エージェント本体（Python 3）
+├── tests/
 ├── records/
 │   └── performance.sample.yaml
 ├── scripts/
@@ -54,6 +56,8 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `visual-profile.yaml` | 表示用プロフィール。性格・傾向・特性・技の静的データ         |
 | `mood-rules.yaml` | 成績連動エモートの判定ルール。実績から `normal` / `down` / `up` を決める |
 | `records/performance.sample.yaml` | ペーパートレード実績のサンプル。**実際の運用結果ではない** |
+| `nampinonychus/`  | エージェント本体。観測・判断・発注・記録（Phase 6）               |
+| `tests/`          | 判断ロジックとガードのテスト                                     |
 | `scripts/export_agent_package.py` | 表示用パッケージ（`*.agent.json`）のエクスポート処理 |
 | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ。**生成物であり手で編集しない** |
 | `personality.md`  | 性格・行動原則・話し方                                           |
@@ -194,7 +198,7 @@ python3 scripts/export_agent_package.py
 - エモート判定に `status` は使いません。判定は `performance` と `mood_rules` だけで行います。
 - 構造の詳細は [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) の「6. Artifact への入力を1ファイルにまとめる」を参照してください。
 
-## 利用予定のツール
+## 利用するツール
 
 市場データの取得とペーパートレードには、以下のCLIを利用します。
 
@@ -205,9 +209,38 @@ npm i -g bitbank-lab-cli
 bitbank paper init --jpy=1000000
 ```
 
+ペーパー口座の状態ファイルは `var/paper-state.json`（Git 管理外）に置きます。
+場所の正は `agent.yaml` の `cli.state_path` で、環境変数
+`BITBANK_PAPER_STATE_PATH` として CLI へ渡します。
+
+## エージェントの実行
+
+観測 → 判断 → 発注 → 記録を1周させます。**エントリポイントはこの1コマンドだけ**です。
+
+```bash
+python3 -m nampinonychus.run            # agent.yaml の runtime.dry_run に従う
+python3 -m nampinonychus.run --dry-run  # 発注せず、組み立てた注文だけを出力する
+```
+
+- 結果は判断1件ぶんの JSON として標準出力へ出ます。
+- 判断ログは `memory/decisions/{date}.jsonl` へ追記されます。HOLD でも必ず残します。
+- `status.yaml` は成功した回だけ上書きします。途中で失敗した回は更新しません。
+- `--dry-run` は **agent.yaml より安全側にのみ**倒せます。実際に発注させるときは
+  `agent.yaml` の `runtime.dry_run` を人間が `false` にします。
+- 判断は決定的なコードで行い、LLM は関与しません。呼び出し側が `bitbank`
+  コマンドを組み立てることもしません。
+
+テストは標準ライブラリだけで動きます（依存は PyYAML のみ）。
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
+
 ## 現在の開発段階
 
-現在は、ナンピノニクスの性格・戦略・リスク制約・記憶方式を設計している段階です。
+エージェント本体（Phase 6）を実装し、`runtime.dry_run: true` のまま
+1周できる状態です。実際にペーパー注文を出すのは、人間が `dry_run` を
+`false` にし、`agent.phase` を `paper` へ更新してからです。
 （現在の段階は `agent.yaml` の `agent.phase` が示します）
 
 今後の実装順序は [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) を参照してください。
