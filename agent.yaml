@@ -98,6 +98,11 @@ cli:
   setup:
     init_account: "bitbank paper init --jpy=1000000"
 
+  # ペーパートレード口座の状態ファイル。環境変数 BITBANK_PAPER_STATE_PATH として
+  # CLI へ渡す。リポジトリからの相対パスで、Git 管理外（.gitignore の var/）。
+  # 既定の ~/.bitbank/paper-state.json とは分け、手元の実験と運用を混ぜない。
+  state_path: var/paper-state.json
+
 capital:
   initial_jpy: 1000000
 

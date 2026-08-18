@@ -130,7 +130,9 @@ API キー・シークレット・プロファイル名を、ログにも記憶�
 
 - `HALTED` に到達したとき（強制手仕舞い後）
 - 同じ CLI コマンドが 3 回連続で失敗したとき
-- `status.yaml` の建玉と `bitbank paper assets` の残高が一致しないとき
+- `bitbank paper pnl` の建玉と `bitbank paper assets` の残高が一致しないとき
+  （`status.yaml` との食い違いは異常の兆候として記録するだけでよい。
+  判断には常に実測から導出した状態を使う）
 - 想定していない状態遷移が起きたとき
 
 いずれの場合も、原因と最後に成功した観測値を `memory/lessons.md` に残します。
