@@ -140,8 +140,18 @@ class Client:
     def ticker(self, pair: str) -> Response:
         return self.call("ticker", pair)
 
-    def candles(self, pair: str, candle_type: str) -> Response:
-        return self.call("candles", pair, f"--type={candle_type}")
+    def candles(
+        self,
+        pair: str,
+        candle_type: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> Response:
+        args = ["candles", pair, f"--type={candle_type}"]
+        # 期間指定は --from と --to を必ず対で渡す（片方だけは CLI がエラーにする）。
+        if date_from is not None and date_to is not None:
+            args.extend([f"--from={date_from}", f"--to={date_to}"])
+        return self.call(*args)
 
     def pairs(self) -> Response:
         return self.call("pairs")
