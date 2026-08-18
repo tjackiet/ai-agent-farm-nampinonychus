@@ -26,7 +26,7 @@ account:
 market:
   pair: btc_jpy
   last_price: null
-  anchor_price: null # 直近7日の日足高値
+  anchor_price: null # 直近2時間の15分足高値
   drop_from_anchor_pct: null
   source: null # 例: "bitbank ticker btc_jpy --format=json --machine"
   fetched_at: null

@@ -94,7 +94,8 @@ class Config:
 
     initial_jpy: float
 
-    anchor_lookback_days: int
+    anchor_candle_type: str
+    anchor_lookback_minutes: int
     anchor_metric: str
 
     max_pending_buy_orders: int
@@ -193,7 +194,8 @@ def load(path: Path | str | None = None) -> Config:
         state_path=_str(raw, "cli.state_path"),
         forbidden=tuple(str(f) for f in forbidden),
         initial_jpy=_num(raw, "capital.initial_jpy"),
-        anchor_lookback_days=_int(raw, "strategy.anchor.lookback_days"),
+        anchor_candle_type=_str(raw, "strategy.anchor.candle_type"),
+        anchor_lookback_minutes=_int(raw, "strategy.anchor.lookback_minutes"),
         anchor_metric=_str(raw, "strategy.anchor.metric"),
         max_pending_buy_orders=_int(raw, "strategy.entry.max_pending_buy_orders"),
         cooldown_hours_after_fill=_num(raw, "strategy.entry.cooldown_hours_after_fill"),

@@ -35,7 +35,7 @@ bitbank には、性格の異なる2つの姉妹プロジェクトがある。
 | [`bitbank-lab-cli`](https://github.com/bitbankinc/bitbank-lab-cli) | 生データを取得し、判断は LLM 側で行う。ペーパートレードを含む | **エージェントが利用する** |
 | [`bitbank-lab-mcp`](https://github.com/bitbankinc/bitbank-lab-mcp) | 計算済みのテクニカル分析結果を LLM に渡す        | **利用しない**           |
 
-ナンピノニクスは、アンカー（直近7日高値）も階段の指値価格も自分で計算し、
+ナンピノニクスは、アンカー（直近2時間の高値）も階段の指値価格も自分で計算し、
 ペーパートレードで発注する。**生データと発注手段の両方が必要なため、CLI を使う。**
 
 `bitbank-lab-mcp` は別リポジトリで開発されており、本企画とは独立している。
