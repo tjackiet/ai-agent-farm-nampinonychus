@@ -78,7 +78,8 @@ cli:
     candles_daily: "bitbank candles {pair} --type=1day"
     candles_hourly: "bitbank candles {pair} --type=1hour"
     depth: "bitbank depth {pair}"
-    pairs: "bitbank pairs" # 数量の刻みと最小注文量。発注前の丸めに使う。
+    # 数量の刻み・最小注文量・maker 手数料率。発注前の丸めと数量計算に使う。
+    pairs: "bitbank pairs"
 
   account:
     assets: "bitbank paper assets"
@@ -87,9 +88,12 @@ cli:
     trade_history: "bitbank paper trade-history"
 
   act:
+    # --pair を付けない。pair 限定の部分 tick は lastTickAt を進めないため、
+    # 遡り区間が伸び続けて 24 時間の上限に当たる。
     resolve_fills: "bitbank paper tick"
     create_order: "bitbank paper create-order --pair={pair} --side={side} --type={type} --price={price} --amount={amount}"
-    cancel_order: "bitbank paper cancel-order --pair={pair} --order-id={order_id}"
+    # 取消は id のみを取る。--pair と --order-id は CLI に存在しない。
+    cancel_order: "bitbank paper cancel-order --id={order_id}"
 
   setup:
     init_account: "bitbank paper init --jpy=1000000"

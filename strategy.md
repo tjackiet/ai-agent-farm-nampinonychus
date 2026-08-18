@@ -8,9 +8,11 @@
 - 対象：`btc_jpy`（第1段階は1銘柄のみ）
 - 資金：ペーパートレード 1,000,000 JPY
 - 実行間隔：15分
-- 発注は**指値主体**。`bitbank paper` は GTC 指値のみ・部分約定なしで、
-  `paper tick` が1分足を遡って約定を判定します。15分間隔の成行では拾えない
-  下ヒゲを、置いておいた指値なら拾える — この設計に合わせています。
+- 発注は**指値主体**。`bitbank paper` の指値は GTC のみ・部分約定なしで、
+  `paper tick` が前回 tick 以降の1分足を遡って約定を判定します。15分間隔の
+  成行では拾えない下ヒゲを、置いておいた指値なら拾える — この設計に合わせています。
+- **成行（`--type=market`）も使えます。** last 価格で即時約定します。
+  時間切れの手仕舞いと `HALTED` の強制手仕舞いは、こちらを使います。
 
 ## アンカー価格
 
@@ -66,6 +68,25 @@ bitbank candles btc_jpy --type=1day --format=json --machine
 **平均取得単価 約 13,175,000 JPY**（アンカーから -12.2%）。
 階段を使い切るのはアンカーから -19.3% まで落ちたときです。
 
+### 発注数量の求め方
+
+上の表は予算を価格で割っただけの概算です。実際の発注では2つの調整が必要です。
+
+1. **手数料ぶんを差し引く。** 買い指値は `価格 × 数量 × (1 + maker手数料率)` を
+   JPY 側でロックします。予算ちょうどの数量では残高不足で弾かれます。
+
+   ```
+   数量 = 予算 ÷ (価格 × (1 + max(maker手数料率, 0)))
+   ```
+
+   手数料率は `bitbank pairs` の `maker_fee_rate_quote` を毎回取得します。
+   改定と campaign で変わり、リベートで負にもなるためです。負の値は 0 として
+   扱います（CLI が取得に失敗したときのフォールバックは 0.0012 であり、
+   そちらでロックされても足りるようにするため）。
+
+2. **刻みに丸める。** CLI は丸めません。`unit_amount` の整数倍でなければ
+   エラーで拒否されます。**切り捨て**で丸めます。価格も `price_digits` 以内にします。
+
 ## 決済
 
 平均取得単価を基準に、2段階で利確します。
@@ -93,6 +114,8 @@ bitbank candles btc_jpy --type=1day --format=json --machine
 - クールダウン中（前回約定から6時間以内）
 - 本日すでに2回約定済み
 - 階段を使い切っており、利確条件にも未達
+- 売り指値の取消が「すでに約定していた」で返った（`risk-policy.md`）
+- 24時間を超える停止からの復帰直後（`risk-policy.md`）
 - 取引所がメンテナンス中、またはサーキットブレイク発動中
 - 取得データが5分より古い、または CLI がエラーを返した
 
@@ -129,7 +152,7 @@ bitbank circuit-break btc_jpy --format=json --machine
 bitbank ticker  btc_jpy --format=json --machine
 bitbank candles btc_jpy --type=1day --format=json --machine
 
-# 3. 置いてある指値の約定を解決
+# 3. 置いてある指値の約定を解決（--pair は付けない。理由は後述）
 bitbank paper tick
 
 # 4. 自分の状態
@@ -141,14 +164,32 @@ bitbank paper active-orders --format=json --machine
 
 # 6. 必要なら発注・取消
 bitbank paper create-order --pair=btc_jpy --side=buy --type=limit --price=<段の価格> --amount=<数量>
-bitbank paper cancel-order --pair=btc_jpy --order-id=<id>
+bitbank paper cancel-order --id=<id>
 
 # 7. 判断ログを追記し、status.yaml を更新
 ```
 
-## 実装前に確認が必要な点
+## 実装で踏む CLI の仕様
 
-- `bitbank candles` の `--type` に指定できる値の一覧（README には `1day` の例のみ）。
-  `1hour` を短期判定に使う想定だが、実装時に実際の CLI で確認する。
-- `paper create-order` の数量の刻み・最小注文量。`bitbank pairs` で取得して丸める。
-- `paper tick` を15分ごとに呼んだときの、直前 tick 以降の1分足の遡り範囲。
+`bitbank-lab-cli` の実装で確認済みの事項です。
+
+- **`candles` の `--type`**：`1min` / `5min` / `15min` / `30min` / `1hour` / `4hour` /
+  `8hour` / `12hour` / `1day` / `1week` / `1month`。短期判定に `1hour` を使えます。
+- **数量と価格は丸めてもらえない**：`unit_amount` の整数倍でない数量、
+  `price_digits` を超える価格は、エラーで拒否されます。丸めは発注側の責任です。
+- **手数料は CLI が適用する**：指値は必ず maker、成行は taker。レートは
+  `/spot/pairs` 由来のライブ値です。`paper pnl` は買い手数料を平均取得単価へ
+  上乗せし、売り手数料を実現損益から差し引きます。
+  **自分で手数料を計算し直しません。**
+- **lazy tick**：`paper assets` / `paper trade-history` / `paper active-orders` /
+  `paper create-order` は、呼ぶたびに裏で約定判定を走らせます。明示的な
+  `paper tick` は省略できますが、順序を固定するため15分の処理では最初に呼びます。
+- **`paper tick` に `--pair` を付けない**：pair 限定の部分 tick は `lastTickAt` を
+  進めないため、遡り区間が伸び続けて 24 時間の上限に当たります。
+- **`paper cancel-order` は取消より約定を優先する**：取消の前に必ず約定判定が
+  走ります。`open order not found ... (may have already filled)` が返ったときの
+  扱いは `risk-policy.md`「発注と取消の競合」に従います。
+- **遡りの上限は24時間**：24時間を超えて停止したあとの復帰手順は
+  `risk-policy.md`「運用を中断したあとの復帰」に従います。
+- **状態ファイル**：既定は `~/.bitbank/paper-state.json`。
+  環境変数 `BITBANK_PAPER_STATE_PATH` で変更できます。
