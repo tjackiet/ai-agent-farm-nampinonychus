@@ -41,6 +41,8 @@ class Market:
     anchor: Decimal
     observed_at: datetime
     age_sec: float
+    # 価格そのものの出典。判断に使った数値には、その数値を返したコマンドを添える。
+    source_cmd: str
 
     @property
     def drop_from_anchor_pct(self) -> Decimal:
@@ -77,7 +79,8 @@ def anchor_price(candles: list[dict], lookback_days: int) -> Decimal:
 
 
 def observe_market(client: Client, config: Config, now: datetime) -> Market:
-    ticker = client.ticker(config.pair).data
+    response = client.ticker(config.pair)
+    ticker = response.data
     if not isinstance(ticker, dict) or ticker.get("last") is None:
         raise ValueError("ticker の last が取得できませんでした")
     observed_at = timeutil.from_epoch_ms(float(ticker["timestamp"]), config.timezone)
@@ -92,6 +95,7 @@ def observe_market(client: Client, config: Config, now: datetime) -> Market:
         anchor=anchor_price(candles, config.anchor_lookback_days),
         observed_at=observed_at,
         age_sec=(now - observed_at).total_seconds(),
+        source_cmd=response.source.cmd,
     )
 
 

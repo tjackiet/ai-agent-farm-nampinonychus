@@ -174,7 +174,7 @@ def run_once(
             trades=trades,
             action=decision.action,
             reason=decision.reason,
-            price_source=client.sources[0].cmd if client.sources else None,
+            price_source=market.source_cmd if market is not None else None,
         )
         root = repo_root if repo_root is not None else config_module.REPO_ROOT
         state_module.write_status(document, root / "status.yaml")
