@@ -67,6 +67,7 @@ def market(last: str = "14700000", anchor: str = "15000000", age_sec: float = 5.
         anchor=Decimal(anchor),
         observed_at=at("2026-08-18T09:00:00+09:00"),
         age_sec=age_sec,
+        source_cmd="bitbank ticker btc_jpy --format=json --machine",
     )
 
 

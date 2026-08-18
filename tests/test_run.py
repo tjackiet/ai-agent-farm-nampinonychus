@@ -92,6 +92,13 @@ class CycleTest(unittest.TestCase):
         self.assertEqual(document["market"]["anchor_price"], 15000000.0)
         self.assertEqual(document["account"]["cash_jpy"], 1000000.0)
 
+    def test_価格の出典はtickerである(self):
+        """判断に使った数値には、その数値を返したコマンドを添える（CLAUDE.md）。"""
+        self.run_cycle(FakeCli(default_responses()))
+        document = yaml.safe_load((self.root / "status.yaml").read_text(encoding="utf-8"))
+        self.assertIn("ticker", document["market"]["source"])
+        self.assertNotIn("status", document["market"]["source"])
+
     def test_観測に失敗したらstatusを更新しない(self):
         fake = FakeCli(default_responses(), errors={"ticker": "upstream 503"})
         cycle = self.run_cycle(fake)
