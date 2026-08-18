@@ -425,9 +425,14 @@ def build_status(
     return document
 
 
-def write_status(document: dict, path: Path | str | None = None) -> Path:
-    """status.yaml を書き出す。実行が成功したときだけ呼ぶ。"""
-    target = Path(path) if path is not None else REPO_ROOT / "status.yaml"
+def write_status(document: dict, path: Path | str) -> Path:
+    """スナップショットを書き出す。実行が成功したときだけ呼ぶ。
+
+    書き出し先は agent.yaml の `agent.status_output`（Git 管理外）。
+    リポジトリ直下の status.yaml はスキーマの見本であり、実行では触らない。
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
     header = (
         "# ナンピノニクスの現在状態\n"
         "#\n"

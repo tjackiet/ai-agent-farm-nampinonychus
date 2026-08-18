@@ -53,7 +53,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | ----------------- | ---------------------------------------------------------------- |
 | `CLAUDE.md`       | 毎回必ず守る不変のルール                                         |
 | `agent.yaml`      | エージェント定義。**数値パラメータとバージョンの唯一の正**       |
-| `status.yaml`     | 現在の状態。15分ごとの実行で上書きされる                         |
+| `status.yaml`     | 状態のスキーマの見本。実行では書き換えない（実行時は `var/status.yaml`） |
 | `visual-profile.yaml` | 表示用プロフィール。性格・傾向・特性・技の静的データ         |
 | `mood-rules.yaml` | 成績連動エモートの判定ルール。実績から `normal` / `down` / `up` を決める |
 | `records/performance.sample.yaml` | ペーパートレード実績のサンプル。**実際の運用結果ではない** |
@@ -215,6 +215,9 @@ bitbank paper init --jpy=1000000
 場所の正は `agent.yaml` の `cli.state_path` で、環境変数
 `BITBANK_PAPER_STATE_PATH` として CLI へ渡します。
 
+`var/` には運用の産物（ペーパー口座・スナップショット・判断ログ）がまとまります。
+バックアップは別途行ってください。
+
 ## セットアップ
 
 必要なのは Python 3.9 以上と PyYAML だけです。判断ロジックとテストは
@@ -242,8 +245,11 @@ Homebrew や OS 付属の Python では、`pip install` が
 ```
 
 - 結果は判断1件ぶんの JSON として標準出力へ出ます。
-- 判断ログは `memory/decisions/{date}.jsonl` へ追記されます。HOLD でも必ず残します。
-- `status.yaml` は成功した回だけ上書きします。途中で失敗した回は更新しません。
+- 判断ログは `var/memory/decisions/{date}.jsonl` へ追記されます。HOLD でも必ず残します。
+- スナップショットは `var/status.yaml` へ、成功した回だけ書き出します。
+  途中で失敗した回は更新しません。
+- **運用の産物はすべて `var/` 配下（Git 管理外）です。** 実行しても作業ツリーは汚れません。
+  リポジトリ直下の `status.yaml` はスキーマの見本として固定です。
 - `--dry-run` は **agent.yaml より安全側にのみ**倒せます。実際に発注させるときは
   `agent.yaml` の `runtime.dry_run` を人間が `false` にします。
 - 判断は決定的なコードで行い、LLM は関与しません。呼び出し側が `bitbank`
