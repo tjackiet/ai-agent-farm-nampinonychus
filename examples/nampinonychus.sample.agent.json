@@ -1,6 +1,6 @@
 {
   "package_schema_version": 1,
-  "generated_at": "2026-08-18T22:12:58+09:00",
+  "generated_at": "2026-08-18T22:37:55+09:00",
   "agent": {
     "schema_version": 1,
     "version": "1.0",
@@ -71,7 +71,8 @@
       },
       "setup": {
         "init_account": "bitbank paper init --jpy=1000000"
-      }
+      },
+      "state_path": "var/paper-state.json"
     },
     "capital": {
       "initial_jpy": 1000000

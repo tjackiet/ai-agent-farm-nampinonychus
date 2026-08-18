@@ -1,3 +1,7 @@
 # 実運用で生成される表示用パッケージ（派生物）。正本は YAML と character/ の画像。
 # サンプルは examples/ にコミットする（docs/IMPLEMENTATION_PLAN.md「6.」）。
 dist/
+
+# ペーパートレード口座の状態ファイル（agent.yaml の cli.state_path）。
+# 運用実績そのものであり、派生物ではない。バックアップは別途行う。
+var/

@@ -253,18 +253,114 @@ Artifact で、実績から判定されたエモート画像が表示される�
 
 ### Phase 6：AIエージェント本体の実装
 
-ナンピノニクスが `bitbank-lab-cli` を使い、以下を一周できるようにする。
+ナンピノニクスが `bitbank-lab-cli` を使い、観測 → 判断 → 発注 → 記録を
+一周できるようにする。定期実行は Phase 7 で扱う。本 Phase は
+**「手で1回実行すれば1周する」**までを完了とする。
 
-1. 市場データを取得する
-2. BUY・SELL・HOLD を判断する
-3. 出力を検証する
-4. ペーパートレード注文を実行する
-5. 判断と結果を保存する
+前提は `strategy.md`「15分ごとの処理」「実装で踏む CLI の仕様」と
+`risk-policy.md`「発注と取消の競合」「運用を中断したあとの復帰」に従う。
 
-`strategy.md`「15分ごとの処理」と「実装前に確認が必要な点」、
-[`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) 段階2〜4の補足
-（`runtime.dry_run` を `false` にするのはペーパー注文へ接続するとき、
-あわせて `agent.phase` を `design` から `paper` へ更新する）はここで引き継ぐ。
+#### 決めたこと
+
+| 項目           | 決定                                                                 |
+| -------------- | -------------------------------------------------------------------- |
+| 実装言語       | Python 3（`scripts/export_agent_package.py` と揃える。依存は PyYAML のみ） |
+| 判断の主体     | 決定的コード。**LLM は売買判断に関与しない**                         |
+| 実行のさせ方   | Claude Code CLI から1コマンドを呼ぶ                                  |
+| 状態の正       | `bitbank paper` の実測から毎回導出する（`memory-policy.md`）          |
+| 状態ファイル   | `var/paper-state.json`（Git 管理外）                                 |
+
+#### モジュール構成
+
+| モジュール    | 責務                                                       |
+| ------------- | ---------------------------------------------------------- |
+| `config.py`   | `agent.yaml` の読み込みと検証。数値パラメータの入口はここだけ |
+| `cli.py`      | `bitbank` コマンドの薄いラッパ（`--format=json --machine` 固定、出典と取得時刻を返す） |
+| `observe.py`  | 市場・口座の観測をまとめた不変オブジェクトを作る            |
+| `state.py`    | 現在状態の導出と `status.yaml` の書き出し                   |
+| `decide.py`   | 観測と状態から BUY・SELL・HOLD を決める**純関数**           |
+| `orders.py`   | 数量計算・丸め・発注・取消                                  |
+| `journal.py`  | `memory/decisions/{date}.jsonl` への追記                    |
+| `run.py`      | 1周のオーケストレーション（唯一のエントリポイント）         |
+
+`decide.py` に I/O を入れない。入力は観測値と状態、出力は
+「何を取り消し、何を発注し、なぜそうしたか」だけとする。
+`risk-policy.md` の制約は、この関数のテストで担保する。
+本番では滅多に起きない「データが5分より古い」「サーキットブレイク中」も、
+テストなら確実に踏める。
+
+#### 1周の流れ
+
+| #   | やること                                                    | 失敗したとき                     |
+| --- | ----------------------------------------------------------- | -------------------------------- |
+| 1   | `status` / `circuit-break` でガード                          | HOLD を記録して終了              |
+| 2   | `ticker` / `candles --type=1day` / `pairs` を観測し鮮度を検証 | HOLD                             |
+| 3   | `paper tick`（`--pair` を付けない）で約定を解決               | HOLD                             |
+| 4   | `assets` / `pnl` / `active-orders` / `trade-history` を観測   | HOLD                             |
+| 5   | 現在状態を導出する                                           | 導出できなければ HOLD ＋ 人間へ  |
+| 6   | `decide()` で BUY・SELL・HOLD を決める                       | —                                |
+| 7   | 取消 → 発注の順に実行する                                    | 取消が「約定済み」ならその回は打ち切って HOLD |
+| 8   | 判断ログを追記し、`status.yaml` を書き出す                   | 途中で失敗したら `status.yaml` を更新しない |
+
+#### 状態の導出
+
+階段の状態は `status.yaml` に覚えさせず、**毎回 CLI の実測から導出する**。
+クラッシュ・二重起動・人間の手動介入があっても状態が壊れないためである。
+
+| 状態                    | 導出方法                                                   |
+| ----------------------- | ---------------------------------------------------------- |
+| `ladder.step`           | 建玉がゼロだった時点以降の buy 約定件数                     |
+| `last_fill_price`       | 直近 buy 約定の `fillPrice`                                 |
+| `cooldown_until`        | 直近 buy 約定の `filledAt` ＋ 6時間                         |
+| `fills_today`           | 当日（Asia/Tokyo）の約定件数                                |
+| `opened_at` / `age_days` | 建玉がゼロから非ゼロになった約定の `filledAt`              |
+| 平均取得単価・損益      | `paper pnl` の `avgCost` / `realizedPnl` / `unrealizedPnl`  |
+| 未約定注文              | `paper active-orders`（`max_pending_buy_orders` の判定もこれで行う） |
+
+実装で踏む点：
+
+- `paper pnl` は **建玉ゼロかつ実現損益ゼロのペアを出力しない**。
+  対象ペアが応答に無い場合は「建玉なし」として扱う。
+- `avgCost` は**買い手数料を含む**。利確ラインはこの値を基準に計算する
+  （手数料を回収したうえでの +3% / +6% になる）。
+- 未約定注文の本数を `status.yaml` から数えない。数えると、発注直後に
+  落ちた回の注文が次回に二重発注される。
+
+#### Claude Code CLI からの実行
+
+- 実行は `python3 -m nampinonychus.run` の**1コマンド**とする。
+  Claude Code はこれを呼んで結果を読むだけとし、
+  **Claude が `bitbank` コマンドを組み立てない。**
+  組み立てを任せると、`risk-policy.md` の制約が確率的に破られる。
+- 出力は判断1件ぶんの JSON（`action` / `reason` / `orders` / `sources`）。
+  人間向けの言い換えは Claude Code 側で行ってよいが、
+  **数値を作り直さない**（`memory-policy.md`）。
+- `.claude/settings.json` の `permissions.deny` に禁止コマンドを登録し、
+  `CLAUDE.md` の禁止事項をハーネス側でも二重化する。
+  これはエージェント側のルールの置き換えではなく、二重化である。
+
+#### dry_run の外しかた
+
+1. `runtime.dry_run: true` のまま1周させ、組み立てた注文が正しいか人間が確認する
+2. `runtime.dry_run` を `false`、`agent.phase` を `design` から `paper` へ人間が更新する
+3. `bitbank paper init --jpy=1000000` で口座を初期化する
+
+`version` は Phase 6 が一周するまで `1.0` に据え置く（本書「10. 未確定事項」）。
+
+#### テスト方針
+
+CLI を叩くテストと、叩かないテストを分ける。
+
+- **`decide()` の純関数テスト**：状態遷移（IDLE → LADDERING → HOLDING）、
+  no_chase、クールダウン、当日約定上限、ドローダウン -15% / -25%、
+  時間切れ手仕舞い、5段使い切り
+- **数量計算**：`unit_amount` の丸め、手数料マージン、`per_order_max_jpy` 超過、
+  `min_cash_reserve_ratio` 抵触
+- **状態の導出**：`trade-history` のフィクスチャから段数・クールダウン・当日回数
+- **ガード**：データが5分より古い、CLI がエラー終了、JSON が壊れている、
+  サーキットブレイク中、`pnl` に対象ペアが出てこない
+- **統合テスト**：実 CLI を使うものは1本だけ（`paper init` → `create-order` →
+  `tick` → `assets`）。既定ではスキップし、明示的に有効化したときだけ走らせる
 
 ### Phase 7：定期運用
 
@@ -351,6 +447,13 @@ Artifact とエモート判定のデータ構造が先行して存在する現�
 - 表示用パッケージに `status` を**含める**（表示専用。エモート判定には使わない）
 - 実運用の生成先は `dist/`（Git 管理外）、サンプルは `examples/` へコミット
 - エクスポート処理は Python 3 + PyYAML（`scripts/export_agent_package.py`）
+- Phase 6 の実装言語は Python 3（依存は PyYAML のみ）
+- Phase 6 の売買判断は決定的コードで行い、LLM を関与させない。
+  実行は Claude Code CLI から `python3 -m nampinonychus.run` の1コマンドを呼ぶ
+- 階段の状態は `bitbank paper` の実測から毎回導出する。
+  `status.yaml` は状態の正ではなくスナップショット（`memory-policy.md` を更新済み）
+- ペーパートレードの状態ファイルは `var/paper-state.json`（Git 管理外）。
+  `BITBANK_PAPER_STATE_PATH` で CLI へ渡す
 - **`agent.yaml` の `version` は Phase 6 が一周するまで `1.0` に据え置く。**
   それまでの設定・文書の修正では minor を上げない。エージェントが一通り
   動くようになった時点で、あらためて版を判断する
