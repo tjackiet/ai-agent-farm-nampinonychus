@@ -1,6 +1,6 @@
 {
   "package_schema_version": 1,
-  "generated_at": "2026-08-18T22:37:55+09:00",
+  "generated_at": "2026-08-19T00:21:48+09:00",
   "agent": {
     "schema_version": 1,
     "version": "1.0",
@@ -55,6 +55,7 @@
         "ticker": "bitbank ticker {pair}",
         "candles_daily": "bitbank candles {pair} --type=1day",
         "candles_hourly": "bitbank candles {pair} --type=1hour",
+        "candles_15min": "bitbank candles {pair} --type=15min",
         "depth": "bitbank depth {pair}",
         "pairs": "bitbank pairs"
       },
@@ -79,15 +80,16 @@
     },
     "strategy": {
       "anchor": {
-        "source": "candles_daily",
-        "lookback_days": 7,
+        "source": "candles_15min",
+        "candle_type": "15min",
+        "lookback_minutes": 120,
         "metric": "high"
       },
       "entry": {
         "order_type": "limit",
         "max_pending_buy_orders": 2,
-        "cooldown_hours_after_fill": 6,
-        "max_fills_per_day": 2
+        "cooldown_hours_after_fill": 0.5,
+        "max_fills_per_day": 16
       },
       "ladder": {
         "max_steps": 5,
@@ -96,31 +98,31 @@
           {
             "step": 1,
             "from": "anchor",
-            "drop_pct": 3.0,
+            "drop_pct": 0.5,
             "budget_jpy": 80000
           },
           {
             "step": 2,
             "from": "last_fill",
-            "drop_pct": 3.0,
+            "drop_pct": 0.5,
             "budget_jpy": 100000
           },
           {
             "step": 3,
             "from": "last_fill",
-            "drop_pct": 4.0,
+            "drop_pct": 0.7,
             "budget_jpy": 120000
           },
           {
             "step": 4,
             "from": "last_fill",
-            "drop_pct": 5.0,
+            "drop_pct": 1.0,
             "budget_jpy": 140000
           },
           {
             "step": 5,
             "from": "last_fill",
-            "drop_pct": 6.0,
+            "drop_pct": 1.5,
             "budget_jpy": 160000
           }
         ]
@@ -130,16 +132,16 @@
         "take_profit": [
           {
             "level": 1,
-            "gain_pct": 3.0,
+            "gain_pct": 0.3,
             "sell_ratio": 0.5
           },
           {
             "level": 2,
-            "gain_pct": 6.0,
+            "gain_pct": 0.6,
             "sell_ratio": 1.0
           }
         ],
-        "time_stop_days": 60
+        "time_stop_days": 3
       },
       "no_chase": {
         "enabled": true,
@@ -228,7 +230,7 @@
     "tendencies": {
       "risk": 35,
       "decision_speed": 30,
-      "time_horizon": 60,
+      "time_horizon": 25,
       "adaptability": 10,
       "memory": 75
     },
@@ -253,11 +255,11 @@
       },
       {
         "name": "高値は追わない",
-        "description": "現在価格が直近7日の日足高値（アンカー）以上の間、新規買いを行わない。"
+        "description": "現在価格が直近2時間の15分足高値（アンカー）以上の間、新規買いを行わない。"
       },
       {
         "name": "二段階利確",
-        "description": "平均取得単価 +3% で建玉の半分、+6% で残り全量を利確する。売り指値は常時板に置く。"
+        "description": "平均取得単価 +0.3% で建玉の半分、+0.6% で残り全量を利確する。売り指値は常時板に置く。"
       },
       {
         "name": "冬眠",

@@ -67,13 +67,13 @@ class BuyTest(unittest.TestCase):
     def decide(self, current):
         return decide(self.config, guards(), market(), pair_spec(), current, NOW)
 
-    def test_1段目はアンカーから3パーセント下に置く(self):
+    def test_1段目はアンカーから0_5パーセント下に置く(self):
         decision = self.decide(state())
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.state, "IDLE")
         order = decision.place[0]
-        self.assertEqual(order.price, Decimal("14550000"))
-        self.assertEqual(order.amount, Decimal("0.0054"))
+        self.assertEqual(order.price, Decimal("14925000"))
+        self.assertEqual(order.amount, Decimal("0.0053"))
         self.assertEqual(order.label, "step-1")
 
     def test_アンカー以上では追わない(self):
@@ -99,8 +99,8 @@ class BuyTest(unittest.TestCase):
             last_fill_at="2026-08-18T06:00:00+09:00",
             cooldown_until="2026-08-18T12:00:00+09:00",
             pending_sell=[
-                open_order("s1", "sell", "14986500", "0.0027"),
-                open_order("s2", "sell", "15423000", "0.0027"),
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0027"),
             ],
         )
         decision = self.decide(current)
@@ -108,7 +108,7 @@ class BuyTest(unittest.TestCase):
         self.assertIn("クールダウン", decision.reason)
 
     def test_当日の約定上限に達したら発注しない(self):
-        current = state(fills_today=2, cooldown_until="2026-08-18T08:00:00+09:00")
+        current = state(fills_today=16, cooldown_until="2026-08-18T08:00:00+09:00")
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
         self.assertIn("本日すでに", decision.reason)
@@ -122,8 +122,8 @@ class BuyTest(unittest.TestCase):
             last_fill_price="12099221",
             cash="400000",
             pending_sell=[
-                open_order("s1", "sell", "13570250", "0.0227"),
-                open_order("s2", "sell", "13965500", "0.0228"),
+                open_order("s1", "sell", "13214525", "0.0227"),
+                open_order("s2", "sell", "13254050", "0.0228"),
             ],
         )
         decision = self.decide(current)
@@ -145,8 +145,8 @@ class BuyTest(unittest.TestCase):
             cash_available=cash_available,
             pending_buy=[open_order("b2", "buy", "14113500", "0.0070")],
             pending_sell=[
-                open_order("s1", "sell", "14986500", "0.0027"),
-                open_order("s2", "sell", "15423000", "0.0027"),
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0027"),
             ],
         )
 
@@ -161,8 +161,8 @@ class BuyTest(unittest.TestCase):
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.place[0].label, "step-3")
         # 使えるのは 260,000 - 200,000 = 60,000 JPY のみ
-        self.assertEqual(decision.place[0].price, Decimal("13968000"))
-        self.assertEqual(decision.place[0].amount, Decimal("0.0042"))
+        self.assertEqual(decision.place[0].price, Decimal("14448150"))
+        self.assertEqual(decision.place[0].amount, Decimal("0.0041"))
 
     def test_建玉が上限に達したら買わない(self):
         """取得原価の合計は初期資金の 60% を超えない。"""
@@ -176,8 +176,8 @@ class BuyTest(unittest.TestCase):
             cooldown_until="2026-08-17T06:00:00+09:00",
             cash="400000",
             pending_sell=[
-                open_order("s1", "sell", "13582417", "0.0227"),
-                open_order("s2", "sell", "13978021", "0.0228"),
+                open_order("s1", "sell", "13226373", "0.0227"),
+                open_order("s2", "sell", "13265933", "0.0228"),
             ],
         )
         decision = self.decide(current)
@@ -195,14 +195,14 @@ class BuyTest(unittest.TestCase):
             cooldown_until="2026-08-17T06:00:00+09:00",
             cash="921430",
             pending_sell=[
-                open_order("s1", "sell", "14986500", "0.0027"),
-                open_order("s2", "sell", "15423000", "0.0027"),
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0027"),
             ],
         )
         decision = self.decide(current)
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.state, "LADDERING")
-        self.assertEqual(decision.place[0].price, Decimal("14113500"))
+        self.assertEqual(decision.place[0].price, Decimal("14477250"))
         self.assertEqual(decision.place[0].label, "step-2")
 
 
@@ -218,8 +218,8 @@ class SellTest(unittest.TestCase):
         self.assertEqual(
             prices,
             [
-                (Decimal("14986500"), Decimal("0.0027"), "tp-1"),
-                (Decimal("15423000"), Decimal("0.0028"), "tp-2"),
+                (Decimal("14593650"), Decimal("0.0027"), "tp-1"),
+                (Decimal("14637300"), Decimal("0.0028"), "tp-2"),
             ],
         )
 
@@ -242,8 +242,8 @@ class SellTest(unittest.TestCase):
             cash="920000",
             cooldown_until="2026-08-18T23:00:00+09:00",
             pending_sell=[
-                open_order("s1", "sell", "14986500", "0.0027"),
-                open_order("s2", "sell", "15423000", "0.0028"),
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0028"),
             ],
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
@@ -276,8 +276,8 @@ class RiskTest(unittest.TestCase):
             cash="760000",
             equity="840000",
             pending_sell=[
-                open_order("s1", "sell", "14986500", "0.0027"),
-                open_order("s2", "sell", "15423000", "0.0028"),
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0028"),
             ],
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
@@ -302,7 +302,7 @@ class RiskTest(unittest.TestCase):
             cash="660000",
             equity="740000",
             pending_buy=[open_order("b1", "buy", "14113500", "0.0070")],
-            pending_sell=[open_order("s1", "sell", "14986500", "0.0027")],
+            pending_sell=[open_order("s1", "sell", "14593650", "0.0027")],
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
         self.assertEqual(decision.state, "HALTED")
@@ -311,14 +311,14 @@ class RiskTest(unittest.TestCase):
         self.assertEqual(decision.place[0].order_type, "market")
         self.assertEqual(decision.place[0].amount, Decimal("0.0055"))
 
-    def test_保有60日を超えたら手仕舞う(self):
+    def test_保有上限を超えたら手仕舞う(self):
         current = state(
             position="0.0055",
             avg_cost="14550000",
             step=1,
             cash="920000",
-            age_days=61.0,
-            opened_at="2026-06-18T09:00:00+09:00",
+            age_days=4.0,
+            opened_at="2026-08-14T09:00:00+09:00",
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
         self.assertEqual(decision.action, SELL)

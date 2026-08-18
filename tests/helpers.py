@@ -145,17 +145,20 @@ def open_order(
 NOW_MS = 1787011200000
 
 
-def daily_candles(highs: Sequence[int], start_ms: int | None = None) -> list[dict]:
-    # 最後の1本が当日の足になるように並べる。
-    first = start_ms if start_ms is not None else NOW_MS - 86_400_000 * (len(highs) - 1)
+def intraday_candles(
+    highs: Sequence[int], interval_min: int = 15, end_ms: int | None = None
+) -> list[dict]:
+    # 最後の1本が進行中の足になるように、現在時刻から遡って並べる。
+    last = end_ms if end_ms is not None else NOW_MS
+    step = interval_min * 60_000
     return [
         {
-            "open": high - 100000,
+            "open": high - 10000,
             "high": high,
-            "low": high - 200000,
-            "close": high - 50000,
+            "low": high - 20000,
+            "close": high - 5000,
             "vol": 10,
-            "timestamp": first + index * 86_400_000,
+            "timestamp": last - (len(highs) - 1 - index) * step,
         }
         for index, high in enumerate(highs)
     ]
@@ -191,7 +194,20 @@ class FakeCli:
 def default_responses(
     *,
     last: int = 14_700_000,
-    highs: Sequence[int] = (14_000_000, 14_500_000, 15_000_000, 14_900_000, 14_800_000, 14_750_000, 14_700_000),
+    highs: Sequence[int] = (
+        14_000_000,
+        14_100_000,
+        14_200_000,
+        14_300_000,
+        15_000_000,
+        14_900_000,
+        14_800_000,
+        14_750_000,
+        14_700_000,
+        14_720_000,
+        14_710_000,
+        14_705_000,
+    ),
     assets: Sequence[dict] | None = None,
     pnl: dict | None = None,
     active_orders: Sequence[dict] = (),
@@ -211,7 +227,7 @@ def default_responses(
             "vol": 100,
             "timestamp": ticker_ms,
         },
-        "candles": daily_candles(list(highs)),
+        "candles": intraday_candles(list(highs)),
         "pairs": [PAIR_ROW],
         "paper tick": {"filled": [], "warnings": [], "lastTickAt": "2026-08-18T00:00:00.000Z"},
         "paper assets": list(assets)

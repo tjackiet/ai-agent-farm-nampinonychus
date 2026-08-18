@@ -73,7 +73,7 @@ class CycleTest(unittest.TestCase):
         self.assertTrue(cycle.dry_run)
         self.assertEqual(len(cycle.orders), 1)
         self.assertFalse(cycle.orders[0]["executed"])
-        self.assertIn("--price=14550000", str(cycle.orders[0]["cmd"]))
+        self.assertIn("--price=14925000", str(cycle.orders[0]["cmd"]))
         self.assertNotIn("paper create-order", " ".join(fake.calls))
 
     def test_判断ログをHOLDでも残す(self):

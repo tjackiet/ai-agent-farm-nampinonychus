@@ -77,6 +77,9 @@ cli:
     ticker: "bitbank ticker {pair}"
     candles_daily: "bitbank candles {pair} --type=1day"
     candles_hourly: "bitbank candles {pair} --type=1hour"
+    # アンカーの算出に使う。日中足は UTC 日ごとに区切られるため、
+    # 境界をまたいでも lookback を満たせるよう --from / --to で前日から取る。
+    candles_15min: "bitbank candles {pair} --type=15min"
     depth: "bitbank depth {pair}"
     # 数量の刻み・最小注文量・maker 手数料率。発注前の丸めと数量計算に使う。
     pairs: "bitbank pairs"
@@ -107,35 +110,40 @@ capital:
   initial_jpy: 1000000
 
 strategy:
-  # 基準価格（アンカー）＝直近7日の日足高値
+  # 基準価格（アンカー）＝直近2時間の15分足高値。
+  # 実測（2026-07-19〜08-18 の15分足）で、アンカー -0.5% への到達が
+  # 1日あたり約 9.8 回、うち約 73% が24時間以内に +0.3% を回復した。
   anchor:
-    source: candles_daily
-    lookback_days: 7
+    source: candles_15min # cli.observe のキー
+    candle_type: 15min # candles --type に渡す値
+    lookback_minutes: 120
     metric: high
 
   entry:
     order_type: limit # 指値主体（paper tick が 1分足で約定判定）
     max_pending_buy_orders: 2 # 未約定の買い指値は同時に2本まで
-    cooldown_hours_after_fill: 6 # 約定後、次の段を出すまでの待機
-    max_fills_per_day: 2
+    cooldown_hours_after_fill: 0.5 # 約定後、次の段を出すまでの待機
+    max_fills_per_day: 16 # 実測 9.8 回/日に対する余裕をみた上限
 
   # 買い下がりの階段。from は下落率の基準点。
   ladder:
     max_steps: 5
     total_budget_jpy: 600000
     steps:
-      - { step: 1, from: anchor, drop_pct: 3.0, budget_jpy: 80000 }
-      - { step: 2, from: last_fill, drop_pct: 3.0, budget_jpy: 100000 }
-      - { step: 3, from: last_fill, drop_pct: 4.0, budget_jpy: 120000 }
-      - { step: 4, from: last_fill, drop_pct: 5.0, budget_jpy: 140000 }
-      - { step: 5, from: last_fill, drop_pct: 6.0, budget_jpy: 160000 }
+      - { step: 1, from: anchor, drop_pct: 0.5, budget_jpy: 80000 }
+      - { step: 2, from: last_fill, drop_pct: 0.5, budget_jpy: 100000 }
+      - { step: 3, from: last_fill, drop_pct: 0.7, budget_jpy: 120000 }
+      - { step: 4, from: last_fill, drop_pct: 1.0, budget_jpy: 140000 }
+      - { step: 5, from: last_fill, drop_pct: 1.5, budget_jpy: 160000 }
 
   exit:
     order_type: limit
-    take_profit: # 平均取得単価からの上昇率
-      - { level: 1, gain_pct: 3.0, sell_ratio: 0.5 }
-      - { level: 2, gain_pct: 6.0, sell_ratio: 1.0 }
-    time_stop_days: 60 # 建玉の保有上限。超過で全量手仕舞い。
+    # 平均取得単価からの上昇率。指値の maker 手数料は 0% のため、
+    # 入りも出も指値なら往復コストは 0（成行の手仕舞いのみ taker 0.1%）。
+    take_profit:
+      - { level: 1, gain_pct: 0.3, sell_ratio: 0.5 }
+      - { level: 2, gain_pct: 0.6, sell_ratio: 1.0 }
+    time_stop_days: 3 # 建玉の保有上限。超過で全量手仕舞い。
 
   no_chase:
     enabled: true

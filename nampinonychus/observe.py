@@ -6,13 +6,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from . import timeutil
 from .cli import Client
 from .config import Config
 from .orders import PairSpec, to_decimal
+
+# UTC の日ごとにファイルが分かれる足。境界をまたいでも lookback を満たすため、
+# 前日ぶんも合わせて取得する。
+INTRADAY_CANDLE_TYPES = frozenset({"1min", "5min", "15min", "30min", "1hour"})
 
 # 取引所の稼働状態のうち、判断してよいもの。ここに無い値は理由を問わず HOLD。
 TRADABLE_EXCHANGE_STATUS = frozenset({"NORMAL", "BUSY", "VERY_BUSY"})
@@ -51,6 +55,14 @@ class Market:
         return (self.last - self.anchor) / self.anchor * Decimal(100)
 
 
+def interval_minutes(candle_type: str) -> int:
+    """足の種類から1本あたりの分数を求める。"""
+    table = {"1min": 1, "5min": 5, "15min": 15, "30min": 30, "1hour": 60, "1day": 1440}
+    if candle_type not in table:
+        raise ValueError(f"扱えない足の種類です: {candle_type}")
+    return table[candle_type]
+
+
 def check_guards(client: Client, config: Config) -> Guards:
     """取引所の稼働状態とサーキットブレイクを見る。"""
     statuses = client.status().data
@@ -66,16 +78,45 @@ def check_guards(client: Client, config: Config) -> Guards:
     return Guards(exchange_status=status, circuit_mode=mode)
 
 
-def anchor_price(candles: list[dict], lookback_days: int) -> Decimal:
-    """直近 lookback_days 本の日足高値の最大値。
+def fetch_anchor_candles(client: Client, config: Config, now: datetime) -> list[dict]:
+    """アンカーの算出に使う足を取る。"""
+    candle_type = config.anchor_candle_type
+    if candle_type in INTRADAY_CANDLE_TYPES:
+        today = now.astimezone(timezone.utc)
+        yesterday = today - timedelta(days=1)
+        response = client.candles(
+            config.pair,
+            candle_type,
+            date_from=yesterday.strftime("%Y%m%d"),
+            date_to=today.strftime("%Y%m%d"),
+        )
+    else:
+        response = client.candles(config.pair, candle_type)
+    candles = response.data
+    if not isinstance(candles, list):
+        raise ValueError("ローソク足の応答が配列ではありません")
+    return candles
 
-    当日の未確定足も含める。含めることで、7日高値を更新している最中は
+
+def anchor_price(
+    candles: list[dict], lookback_minutes: int, interval_minutes: int, now: datetime
+) -> Decimal:
+    """直近 lookback_minutes ぶんの足の高値の最大値。
+
+    現在進行中の未確定足も含める。含めることで、高値を更新している最中は
     `no_chase`（現在価格がアンカー以上なら買わない）が働く。
     """
     if not candles:
-        raise ValueError("日足が取得できませんでした")
-    ordered = sorted(candles, key=lambda c: c["timestamp"])[-lookback_days:]
-    return max(to_decimal(c["high"]) for c in ordered)
+        raise ValueError("ローソク足が取得できませんでした")
+    cutoff_ms = int(now.timestamp() * 1000) - lookback_minutes * 60_000
+    recent = [c for c in candles if int(c["timestamp"]) >= cutoff_ms]
+    # 欠損したデータで狭い高値を掴まないよう、期待本数の半分を下回れば判断しない。
+    expected = max(1, lookback_minutes // interval_minutes)
+    if len(recent) < max(1, expected // 2):
+        raise ValueError(
+            f"アンカーに使える足が {len(recent)} 本しかありません（期待 {expected} 本）"
+        )
+    return max(to_decimal(c["high"]) for c in recent)
 
 
 def observe_market(client: Client, config: Config, now: datetime) -> Market:
@@ -85,14 +126,17 @@ def observe_market(client: Client, config: Config, now: datetime) -> Market:
         raise ValueError("ticker の last が取得できませんでした")
     observed_at = timeutil.from_epoch_ms(float(ticker["timestamp"]), config.timezone)
 
-    candles = client.candles(config.pair, "1day").data
-    if not isinstance(candles, list):
-        raise ValueError("日足の応答が配列ではありません")
+    candles = fetch_anchor_candles(client, config, now)
 
     return Market(
         pair=config.pair,
         last=to_decimal(ticker["last"]),
-        anchor=anchor_price(candles, config.anchor_lookback_days),
+        anchor=anchor_price(
+            candles,
+            config.anchor_lookback_minutes,
+            interval_minutes(config.anchor_candle_type),
+            now,
+        ),
         observed_at=observed_at,
         age_sec=(now - observed_at).total_seconds(),
         source_cmd=response.source.cmd,

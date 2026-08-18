@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import timedelta
 from decimal import Decimal
 
 from nampinonychus.state import (
@@ -56,10 +57,13 @@ class RoundTest(unittest.TestCase):
         self.assertEqual(ladder.step, 2)
         self.assertEqual(ladder.last_fill_price_jpy, Decimal("14113500"))
 
-    def test_クールダウンは直近の買いから6時間(self):
+    def test_クールダウンは直近の買いから設定ぶん後(self):
         rows = [trade("buy", "0.0054", "14550000", "2026-08-18T00:00:00.000Z")]
         ladder = derive_ladder(parse_trades(rows, "btc_jpy", helpers.TZ), self.config, NOW)
-        self.assertEqual(ladder.cooldown_until, helpers.at("2026-08-18T15:00:00+09:00"))
+        expected = helpers.at("2026-08-18T09:00:00+09:00") + timedelta(
+            hours=self.config.cooldown_hours_after_fill
+        )
+        self.assertEqual(ladder.cooldown_until, expected)
 
     def test_当日の約定回数は日本時間で数える(self):
         rows = [

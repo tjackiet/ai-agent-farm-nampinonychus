@@ -42,12 +42,14 @@ tendencies:
   risk: 35
 
   # personality.md「決断速度 3/10」をそのまま採用（3/10 → 30）。
-  # 約定後6時間のクールダウン、1日2回までの約定制限とも整合する。
+  # 売買の間隔（約定後30分のクールダウン、1日16回まで）は短いが、
+  # 「一度に全部は買わない」という決断の姿勢そのものは変わっていない。
   decision_speed: 30
 
-  # 建玉の保有上限が 60 日（strategy.exit.time_stop_days）で、それ以上は持たない。
-  # 一方で personality.md「忍耐力 9/10」により日計りもしない。中期寄りの中庸。
-  time_horizon: 60
+  # 建玉の保有上限が 3 日（strategy.exit.time_stop_days）で、それ以上は持たない。
+  # 実測では +0.3% への到達が中央値 2.88 時間。数時間から数日で決着する短期寄り。
+  # 一方で personality.md「忍耐力 9/10」により、買えない時間は待ち続ける。
+  time_horizon: 25
 
   # personality.md「規律 10/10」「ルールにない買い増しをしない」の裏返し。
   # ただしアンカーを毎回計算し直す（相場に合わせて基準そのものは動く）ため 0 ではない。
@@ -76,11 +78,11 @@ skills:
     # agent.yaml strategy.ladder
 
   - name: 高値は追わない
-    description: 現在価格が直近7日の日足高値（アンカー）以上の間、新規買いを行わない。
+    description: 現在価格が直近2時間の15分足高値（アンカー）以上の間、新規買いを行わない。
     # agent.yaml strategy.no_chase / strategy.anchor
 
   - name: 二段階利確
-    description: 平均取得単価 +3% で建玉の半分、+6% で残り全量を利確する。売り指値は常時板に置く。
+    description: 平均取得単価 +0.3% で建玉の半分、+0.6% で残り全量を利確する。売り指値は常時板に置く。
     # agent.yaml strategy.exit.take_profit
 
   - name: 冬眠
