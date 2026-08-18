@@ -33,6 +33,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── strategy.md
 ├── risk-policy.md
 ├── memory-policy.md
+├── requirements.txt
 ├── nampinonychus/          # エージェント本体（Python 3）
 ├── tests/
 ├── records/
@@ -56,6 +57,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `visual-profile.yaml` | 表示用プロフィール。性格・傾向・特性・技の静的データ         |
 | `mood-rules.yaml` | 成績連動エモートの判定ルール。実績から `normal` / `down` / `up` を決める |
 | `records/performance.sample.yaml` | ペーパートレード実績のサンプル。**実際の運用結果ではない** |
+| `requirements.txt` | Python の依存。PyYAML のみ                                      |
 | `nampinonychus/`  | エージェント本体。観測・判断・発注・記録（Phase 6）               |
 | `tests/`          | 判断ロジックとガードのテスト                                     |
 | `scripts/export_agent_package.py` | 表示用パッケージ（`*.agent.json`）のエクスポート処理 |
@@ -183,14 +185,14 @@ HTML ステータス画面は、`agent.yaml` の `version` から `major` を読
 
 ## 表示用パッケージ
 
-Claude Desktop の HTML Artifact へは、正本の YAML とキャラクター画像を1つの JSON（`*.agent.json`）にまとめて渡します。生成は `scripts/export_agent_package.py` が行います（要 Python 3.9+ / PyYAML）。
+Claude Desktop の HTML Artifact へは、正本の YAML とキャラクター画像を1つの JSON（`*.agent.json`）にまとめて渡します。生成は `scripts/export_agent_package.py` が行います（「セットアップ」の仮想環境を使います）。
 
 ```bash
 # サンプル（records/performance.sample.yaml を使用）→ examples/ へ
-python3 scripts/export_agent_package.py --sample
+.venv/bin/python scripts/export_agent_package.py --sample
 
 # 実運用（records/performance.yaml を使用）→ dist/ へ（Git 管理外）
-python3 scripts/export_agent_package.py
+.venv/bin/python scripts/export_agent_package.py
 ```
 
 - JSON は正本から生成される派生物です。手で直すのは常に正本側とし、JSON は再生成します。
@@ -213,13 +215,30 @@ bitbank paper init --jpy=1000000
 場所の正は `agent.yaml` の `cli.state_path` で、環境変数
 `BITBANK_PAPER_STATE_PATH` として CLI へ渡します。
 
+## セットアップ
+
+必要なのは Python 3.9 以上と PyYAML だけです。判断ロジックとテストは
+標準ライブラリだけで動きます。
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+以降のコマンドは `.venv/bin/python` で実行します（`source .venv/bin/activate`
+してから `python3` でも同じです）。
+
+Homebrew や OS 付属の Python では、`pip install` が
+`externally-managed-environment` で拒否されます（PEP 668）。仮想環境を作るのが
+確実です。
+
 ## エージェントの実行
 
 観測 → 判断 → 発注 → 記録を1周させます。**エントリポイントはこの1コマンドだけ**です。
 
 ```bash
-python3 -m nampinonychus.run            # agent.yaml の runtime.dry_run に従う
-python3 -m nampinonychus.run --dry-run  # 発注せず、組み立てた注文だけを出力する
+.venv/bin/python -m nampinonychus.run            # agent.yaml の runtime.dry_run に従う
+.venv/bin/python -m nampinonychus.run --dry-run  # 発注せず、組み立てた注文だけを出力する
 ```
 
 - 結果は判断1件ぶんの JSON として標準出力へ出ます。
@@ -230,10 +249,10 @@ python3 -m nampinonychus.run --dry-run  # 発注せず、組み立てた注文�
 - 判断は決定的なコードで行い、LLM は関与しません。呼び出し側が `bitbank`
   コマンドを組み立てることもしません。
 
-テストは標準ライブラリだけで動きます（依存は PyYAML のみ）。
+テストの実行:
 
 ```bash
-python3 -m unittest discover -s tests -t .
+.venv/bin/python -m unittest discover -s tests -t .
 ```
 
 ## 現在の開発段階
