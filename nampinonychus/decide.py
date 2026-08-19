@@ -372,6 +372,19 @@ def decide(
             f"建玉の保有が {age_days:.1f} 日で上限を超えた",
         )
 
+    # 冬眠は「新規買いを全面停止」する。板に残った買い指値は放っておくと
+    # 約定して建玉が増えるため、先に取り消す。利確の売り指値は維持する。
+    if name == "HIBERNATING" and state.pending_buy:
+        return Decision(
+            action=HOLD,
+            state=name,
+            reason=(
+                f"総資産が {state.account.drawdown_pct:.1f}% のため、"
+                "未約定の買い指値を取り消す"
+            ),
+            cancel=tuple(o.id for o in state.pending_buy),
+        )
+
     desired = desired_sell_orders(config, spec, state)
     if desired and not _sells_match(state, desired):
         return Decision(

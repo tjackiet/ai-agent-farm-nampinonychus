@@ -360,6 +360,26 @@ class RiskTest(unittest.TestCase):
         self.assertEqual(decision.action, HOLD)
         self.assertIn("新規買いを停止", decision.reason)
 
+    def test_冬眠中は板に残った買い指値を取り消す(self):
+        """放置すると約定して建玉が増え、「新規買いを全面停止」が守れない。"""
+        current = state(
+            position="0.0055",
+            avg_cost="14550000",
+            step=1,
+            cash="760000",
+            equity="840000",
+            pending_buy=[open_order("b1", "buy", "14477250", "0.0069")],
+            pending_sell=[
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0028"),
+            ],
+        )
+        decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
+        self.assertEqual(decision.state, "HIBERNATING")
+        self.assertEqual(decision.action, HOLD)
+        self.assertEqual(decision.cancel, ("b1",))
+        self.assertEqual(decision.place, ())
+
     def test_冬眠中でも利確の売り指値は維持する(self):
         current = state(
             position="0.0055", avg_cost="14550000", step=1, cash="760000", equity="840000"
