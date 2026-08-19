@@ -184,6 +184,28 @@ risk:
   # status.yaml の初期値と対応する。戦略上の状態遷移は IDLE から始まる。
   states: [NOT_INITIALIZED, IDLE, LADDERING, HOLDING, HIBERNATING, HALTED]
 
+# 記録の言語化。日誌の「所感」と「学び」を、ナンピノニクス自身の言葉で書く。
+#
+# **売買の判断には一切関与しない。** 書くのは記録の文章だけで、
+# 発注・取消・HOLD の決定は決定的なコードが行う（docs/IMPLEMENTATION_PLAN.md Phase 6）。
+# API キーは環境変数からのみ読む。書けなければ「（未記入）」のまま残す。
+narrate:
+  enabled: true
+
+  # claude_code = Claude Code CLI を非対話で呼ぶ（claude -p）。API キーは要らない。
+  # api        = Anthropic API を直接呼ぶ（ANTHROPIC_API_KEY などの資格情報が要る）。
+  writer: claude_code
+  command: claude # writer=claude_code のときに使うコマンド
+  timeout_sec: 120
+
+  model: claude-opus-5
+  effort: low # 数文を書くだけなので低くてよい
+  max_tokens: 1000 # writer=api のときだけ使う
+  targets:
+    daily: true # 日次サマリの所感
+    lessons: true # 建玉が完結したときの学び
+    report: true # 半日ごとの振り返りへの一言
+
 # 動きがあったときの通知。Discord などの Webhook へ1方向で送る。
 # **URL は環境変数からのみ読む。** リポジトリにも判断ログにも書かない（CLAUDE.md）。
 # 通知に失敗しても判断には影響させない（送れなくても発注は続ける）。

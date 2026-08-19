@@ -1,6 +1,6 @@
 {
   "package_schema_version": 1,
-  "generated_at": "2026-08-19T10:42:07+09:00",
+  "generated_at": "2026-08-19T12:21:26+09:00",
   "agent": {
     "schema_version": 1,
     "version": "1.0",
@@ -19,6 +19,7 @@
       },
       "status_file": "status.yaml",
       "status_output": "var/status.yaml",
+      "performance_output": "var/performance.yaml",
       "visual_profile_file": "visual-profile.yaml"
     },
     "runtime": {
@@ -172,6 +173,36 @@
         "HOLDING",
         "HIBERNATING",
         "HALTED"
+      ]
+    },
+    "narrate": {
+      "enabled": true,
+      "writer": "claude_code",
+      "command": "claude",
+      "timeout_sec": 120,
+      "model": "claude-opus-5",
+      "effort": "low",
+      "max_tokens": 1000,
+      "targets": {
+        "daily": true,
+        "lessons": true,
+        "report": true
+      }
+    },
+    "notify": {
+      "enabled": true,
+      "webhook_env": "NAMPINONYCHUS_WEBHOOK_URL",
+      "timeout_sec": 10,
+      "events": {
+        "fill": true,
+        "order": true,
+        "state_change": true,
+        "error": true
+      },
+      "error_streak": 3,
+      "report_at": [
+        "09:00",
+        "21:00"
       ]
     },
     "memory": {

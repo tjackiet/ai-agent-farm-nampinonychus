@@ -127,6 +127,15 @@ class Config:
 
     status_output: str
     performance_output: str
+    narrate_enabled: bool
+    narrate_writer: str
+    narrate_command: str
+    narrate_timeout_sec: int
+    narrate_model: str
+    narrate_effort: str
+    narrate_max_tokens: int
+    narrate_targets: dict
+
     notify_enabled: bool
     notify_webhook_env: str
     notify_timeout_sec: int
@@ -236,6 +245,14 @@ def load(path: Path | str | None = None) -> Config:
         max_data_age_sec=_int(raw, "risk.guards.max_data_age_sec"),
         status_output=_str(raw, "agent.status_output"),
         performance_output=_str(raw, "agent.performance_output"),
+        narrate_enabled=_bool(raw, "narrate.enabled"),
+        narrate_writer=_str(raw, "narrate.writer"),
+        narrate_command=_str(raw, "narrate.command"),
+        narrate_timeout_sec=_int(raw, "narrate.timeout_sec"),
+        narrate_model=_str(raw, "narrate.model"),
+        narrate_effort=_str(raw, "narrate.effort"),
+        narrate_max_tokens=_int(raw, "narrate.max_tokens"),
+        narrate_targets={str(k): bool(v) for k, v in _get(raw, "narrate.targets").items()},
         notify_enabled=_bool(raw, "notify.enabled"),
         notify_webhook_env=_str(raw, "notify.webhook_env"),
         notify_timeout_sec=_int(raw, "notify.timeout_sec"),

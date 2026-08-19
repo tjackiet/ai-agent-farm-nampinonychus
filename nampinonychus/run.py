@@ -20,6 +20,7 @@ from . import (
     config as config_module,
     decide as decide_module,
     journal,
+    narrate as narrate_module,
     notify as notify_module,
     observe,
     performance as performance_module,
@@ -87,6 +88,22 @@ def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetim
     return derived, trades, filled if isinstance(filled, list) else []
 
 
+def _narrate(
+    cfg: config_module.Config,
+    repo_root: Path | None,
+    client: cli.Client,
+    narrator: narrate_module.Writer | None,
+) -> None:
+    """日誌の空欄を埋める。失敗しても運用は続ける（空欄のまま残るだけ）。"""
+    if not cfg.narrate_enabled:
+        return
+    writer = narrator or narrate_module.writer_for(cfg)
+    try:
+        narrate_module.fill_unwritten(cfg, writer, repo_root)
+    except Exception as exc:  # noqa: BLE001 - 言語化の失敗で発注を止めない
+        client.warnings.append(f"所感を書けませんでした: {type(exc).__name__}")
+
+
 def run_once(
     cfg: config_module.Config,
     client: cli.Client,
@@ -95,6 +112,7 @@ def run_once(
     force_dry_run: bool = False,
     repo_root: Path | None = None,
     notifier: notify_module.Poster | None = None,
+    narrator: narrate_module.Writer | None = None,
 ) -> Cycle:
     dry_run = cfg.dry_run or force_dry_run
     run_id = timeutil.to_iso(now)
@@ -213,6 +231,7 @@ def run_once(
     if error is None and derived is not None:
         try:
             summary_module.ensure(cfg, now, trades, repo_root)
+            _narrate(cfg, repo_root, client, narrator)
             performance_doc = performance_module.build(cfg, now, all_records, trades)
             performance_module.write(
                 performance_doc,
@@ -235,7 +254,16 @@ def run_once(
     if performance_doc is not None and notify_module.crossed_report_times(
         cfg, previous.at, now
     ):
-        messages.append(notify_module.build_report(cfg, now, performance_doc, derived))
+        report = notify_module.build_report(cfg, now, performance_doc, derived)
+        if cfg.narrate_enabled:
+            try:
+                writer = narrator or narrate_module.writer_for(cfg)
+                remark = narrate_module.comment(cfg, writer, report, repo_root)
+                if remark:
+                    report = f"{report}\n> {remark}"
+            except Exception as exc:  # noqa: BLE001 - 一言が書けなくても送る
+                client.warnings.append(f"一言を書けませんでした: {type(exc).__name__}")
+        messages.append(report)
     failure = notify_module.send(cfg, messages, poster=notifier)
     if failure:
         client.warnings.append(failure)
