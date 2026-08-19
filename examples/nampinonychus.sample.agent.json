@@ -1,6 +1,6 @@
 {
   "package_schema_version": 1,
-  "generated_at": "2026-08-19T09:35:27+09:00",
+  "generated_at": "2026-08-19T09:38:39+09:00",
   "agent": {
     "schema_version": 1,
     "version": "1.0",
@@ -10,7 +10,7 @@
       "name_en": "Nampinonychus",
       "tagline": "下落を待ち、下落を買う",
       "archetype": "contrarian-dca",
-      "phase": "design",
+      "phase": "paper",
       "documents": {
         "personality": "personality.md",
         "strategy": "strategy.md",
@@ -27,7 +27,7 @@
       "max_runtime_sec": 120,
       "on_error": "hold",
       "stale_tick_hours": 24,
-      "dry_run": true
+      "dry_run": false
     },
     "market": {
       "exchange": "bitbank",
