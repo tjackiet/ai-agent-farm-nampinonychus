@@ -47,6 +47,8 @@
 | 12  | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ            |
 | 13  | `nampinonychus/`                  | エージェント本体。観測 → 判断 → 発注 → 記録が1周する（Phase 6） |
 | 14  | `tests/`                          | 判断ロジックとガードのテスト（実行方法は `README.md`「セットアップ」） |
+| 15  | `scripts/launchd/`                | 15分ごとの定期実行（macOS / launchd。Phase 7）              |
+| 16  | `nampinonychus/summary.py`        | 日次サマリと lessons の生成。所感と学びは空欄で残す         |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
