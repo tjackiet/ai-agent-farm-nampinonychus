@@ -6,7 +6,11 @@
   手順は README.md「定期実行」を参照。
 
   PATH を明示するのは、launchd の既定の PATH に npm のグローバル配置先が
-  含まれず、bitbank コマンドが見つからないため。
+  含まれず、bitbank コマンドが見つからないため。bitbank は #!/usr/bin/env node
+  で起動するので、node と同じディレクトリを指すこと。
+
+  fnm / nvm / volta を使っている場合、which bitbank はシェルごとの
+  使い捨てディレクトリを返す。そのまま書くとシェルを閉じた時点で壊れる。
 -->
 <plist version="1.0">
 <dict>
