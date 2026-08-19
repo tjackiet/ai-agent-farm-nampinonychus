@@ -132,8 +132,8 @@ class BuyTest(unittest.TestCase):
         self.assertEqual(decision.state, "HOLDING")
         self.assertIn("使い切っている", decision.reason)
 
-    def _laddering(self, cash_available: str):
-        """1段目が約定し、2段目を板に置いてある状態。次に出せるのは3段目。"""
+    def _laddering(self, cash_available: str, pending_buy=()):
+        """1段目が約定し、板に買い指値がない状態。次に出せるのは2段目。"""
         return state(
             position="0.0054",
             avg_cost="14550000",
@@ -144,7 +144,7 @@ class BuyTest(unittest.TestCase):
             cooldown_until="2026-08-17T06:00:00+09:00",
             cash="921430",
             cash_available=cash_available,
-            pending_buy=[open_order("b2", "buy", "14113500", "0.0070")],
+            pending_buy=pending_buy,
             pending_sell=[
                 open_order("s1", "sell", "14593650", "0.0027"),
                 open_order("s2", "sell", "14637300", "0.0027"),
@@ -160,10 +160,33 @@ class BuyTest(unittest.TestCase):
     def test_残り予算に合わせて数量を減らす(self):
         decision = self.decide(self._laddering("260000"))
         self.assertEqual(decision.action, BUY)
-        self.assertEqual(decision.place[0].label, "step-3")
+        self.assertEqual(decision.place[0].label, "step-2")
         # 使えるのは 260,000 - 200,000 = 60,000 JPY のみ
-        self.assertEqual(decision.place[0].price, Decimal("14448150"))
+        self.assertEqual(decision.place[0].price, Decimal("14477250"))
         self.assertEqual(decision.place[0].amount, Decimal("0.0041"))
+
+    def test_直前の段が約定するまで次の段を出さない(self):
+        """古い約定を基準にすると、段の間隔が設計より詰まる。"""
+        current = self._laddering(
+            "921430", pending_buy=[open_order("b2", "buy", "14477250", "0.0069")]
+        )
+        decision = self.decide(current)
+        self.assertEqual(decision.action, HOLD)
+        self.assertIn("3 段目の基準となる約定がまだない", decision.reason)
+
+    def test_買い指値が2本あれば余分を取り消す(self):
+        """段の基準にできない注文が残っている状態を自分で直す。"""
+        current = self._laddering(
+            "800000",
+            pending_buy=[
+                open_order("b2", "buy", "14477250", "0.0069"),
+                open_order("b3", "buy", "14448150", "0.0083"),
+            ],
+        )
+        decision = self.decide(current)
+        self.assertEqual(decision.action, HOLD)
+        self.assertEqual(decision.cancel, ("b3",))
+        self.assertIn("14477250 の1本を残して", decision.reason)
 
     def test_建玉が上限に達したら買わない(self):
         """取得原価の合計は初期資金の 60% を超えない。"""
