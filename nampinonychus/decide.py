@@ -154,10 +154,102 @@ def _exit_all(
     )
 
 
+def _step_budget(
+    config: Config, spec: PairSpec, state: State, step, price: Decimal, freed_jpy: Decimal
+) -> Decimal:
+    """その段に使える予算。リスク制約のうち最も厳しいものに合わせる。
+
+    `freed_jpy` は、置き直しで取り消す注文のロックが解放されるぶん。
+    """
+    pending_notional = sum(
+        (o.price * o.amount for o in state.pending_buy), Decimal(0)
+    ) - freed_jpy
+    return min(
+        to_decimal(step.budget_jpy),
+        to_decimal(config.per_order_max_jpy),
+        to_decimal(config.ladder_total_budget_jpy)
+        - state.ladder.used_budget_jpy
+        - pending_notional,
+        to_decimal(config.initial_jpy) * to_decimal(config.max_position_ratio)
+        - state.position.cost_basis_jpy
+        - pending_notional,
+        state.account.cash_available_jpy
+        + freed_jpy
+        - to_decimal(config.initial_jpy) * to_decimal(config.min_cash_reserve_ratio),
+    )
+
+
+def _step_one_price(config: Config, market: Market, spec: PairSpec) -> Decimal:
+    """いまのアンカーから決まる、1段目の指値価格。"""
+    step = config.ladder_steps[0]
+    return floor_price(
+        market.anchor * (Decimal(1) - to_decimal(step.drop_pct) / Decimal(100)),
+        spec.price_digits,
+    )
+
+
+def _reprice_step_one(
+    config: Config, market: Market, spec: PairSpec, state: State, name: str
+) -> Decision | None:
+    """1段目の買い指値をアンカーに追従させる。
+
+    1段目はアンカー基準なので、アンカーが動けば正しい価格も動く。置いたまま
+    放置すると、板にある注文が戦略を表さなくなる（上がれば取り残され、
+    下がればルールより高い位置で買う）。2段目以降は直前の約定価格が基準なので
+    動かさない。
+
+    置き直せないとき（予算や刻みが足りない）は、いまの注文をそのまま残す。
+    取り消しただけで終わるほうが機会損失になる。
+    """
+    # 約定が1件でもあれば、板にあるのは2段目以降。触らない。
+    if state.ladder.step != 0 or len(state.pending_buy) != 1:
+        return None
+
+    order = state.pending_buy[0]
+    desired = _step_one_price(config, market, spec)
+    if desired <= 0 or order.price <= 0:
+        return None
+
+    drift_pct = abs(desired - order.price) / order.price * Decimal(100)
+    if drift_pct < to_decimal(config.reprice_threshold_pct):
+        return None
+
+    freed = order.price * order.amount
+    budget = _step_budget(config, spec, state, config.ladder_steps[0], desired, freed)
+    if budget <= 0:
+        return None
+    amount = buy_amount(budget, desired, spec)
+    if amount <= 0:
+        return None
+
+    return Decision(
+        action=BUY,
+        state=name,
+        reason=(
+            f"アンカーが動いたため1段目を置き直す"
+            f"（{order.price} → {desired}、ずれ {drift_pct:.2f}%）"
+        ),
+        cancel=(order.id,),
+        place=(
+            PlaceOrder(
+                side="buy",
+                order_type="limit",
+                amount=amount,
+                price=desired,
+                label="step-1",
+            ),
+        ),
+    )
+
+
 def _next_buy(
     config: Config, market: Market, spec: PairSpec, state: State, name: str, now: datetime
 ) -> Decision:
     """次の段の買い指値を出せるか判断する。"""
+    repriced = _reprice_step_one(config, market, spec, state, name)
+    if repriced is not None:
+        return repriced
+
     if config.no_chase_enabled and market.last >= market.anchor:
         return _hold(name, "現在価格がアンカー以上のため追わない")
 
@@ -192,21 +284,7 @@ def _next_buy(
     if limit_price <= 0:
         return _hold(name, "指値価格を算出できない")
 
-    pending_notional = sum(
-        (o.price * o.amount for o in state.pending_buy), Decimal(0)
-    )
-    budget = min(
-        to_decimal(step.budget_jpy),
-        to_decimal(config.per_order_max_jpy),
-        to_decimal(config.ladder_total_budget_jpy)
-        - state.ladder.used_budget_jpy
-        - pending_notional,
-        to_decimal(config.initial_jpy) * to_decimal(config.max_position_ratio)
-        - state.position.cost_basis_jpy
-        - pending_notional,
-        state.account.cash_available_jpy
-        - to_decimal(config.initial_jpy) * to_decimal(config.min_cash_reserve_ratio),
-    )
+    budget = _step_budget(config, spec, state, step, limit_price, Decimal(0))
     if budget <= 0:
         return _hold(name, "リスク制約により使える予算が残っていない")
 
