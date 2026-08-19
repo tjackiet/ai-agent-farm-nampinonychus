@@ -57,6 +57,22 @@ def _bool(raw: Any, path: str) -> bool:
     return value
 
 
+# 使わないモデル。料金が上位帯のため、設定に書かれていても受け付けない。
+# 事故で高いモデルが選ばれることを防ぐ。
+FORBIDDEN_MODEL_MARKERS = ("fable", "mythos")
+
+
+def _model(raw: Any, path: str) -> str:
+    value = _str(raw, path)
+    lowered = value.lower()
+    for marker in FORBIDDEN_MODEL_MARKERS:
+        if marker in lowered:
+            raise ConfigError(
+                f"agent.yaml の {path} に {marker} 系のモデルは指定できません: {value}"
+            )
+    return value
+
+
 @dataclass(frozen=True)
 class LadderStep:
     """買い下がりの1段。`base` は下落率の基準点（anchor / last_fill）。"""
@@ -251,7 +267,7 @@ def load(path: Path | str | None = None) -> Config:
         narrate_command=_str(raw, "narrate.command"),
         narrate_bare=_bool(raw, "narrate.bare"),
         narrate_timeout_sec=_int(raw, "narrate.timeout_sec"),
-        narrate_model=_str(raw, "narrate.model"),
+        narrate_model=_model(raw, "narrate.model"),
         narrate_effort=_str(raw, "narrate.effort"),
         narrate_max_tokens=_int(raw, "narrate.max_tokens"),
         narrate_targets={str(k): bool(v) for k, v in _get(raw, "narrate.targets").items()},
