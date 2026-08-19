@@ -245,7 +245,8 @@ launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
 ## 記録の言語化
 
 日誌の「所感」と、建玉が完結したときの「学び」を、ナンピノニクス自身の言葉で書きます。
-**売買の判断には一切関与しません。** 書くのは記録の文章だけです。
+**現時点では売買の判断に関与しません。** 書くのは記録の文章だけです。
+（判断そのものを LLM へ移していく方針は `docs/IMPLEMENTATION_PLAN.md` を参照）
 
 書き手は2つから選べます（`agent.yaml` の `narrate.writer`）。
 
@@ -407,8 +408,11 @@ Homebrew や OS 付属の Python では、`pip install` が
   リポジトリ直下の `status.yaml` はスキーマの見本として固定です。
 - `--dry-run` は **agent.yaml より安全側にのみ**倒せます。実際に発注させるときは
   `agent.yaml` の `runtime.dry_run` を人間が `false` にします。
-- 判断は決定的なコードで行い、LLM は関与しません。呼び出し側が `bitbank`
-  コマンドを組み立てることもしません。
+- 判断は決定的なコードで行い、**現時点では** LLM は関与しません。呼び出し側が
+  `bitbank` コマンドを組み立てることもしません。
+  制約の内側で LLM に判断を任せていく方針と、その段取りは
+  [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
+  「判断を LLM へ移すこと」を参照してください。
 
 テストの実行:
 

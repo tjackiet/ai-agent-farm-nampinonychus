@@ -209,8 +209,9 @@ narrate:
   # 引かれ先は「headless かどうか」ではなく「何で認証されているか」で決まる。
   bare: false
 
-  model: claude-opus-5
-  effort: low # 数文を書くだけなので低くてよい
+  # Fable / Mythos 系は使わない（料金が上位帯のため）。config.py が弾く。
+  model: claude-sonnet-5
+  effort: high # low | medium | high | xhigh | max
   max_tokens: 1000 # writer=api のときだけ使う
   targets:
     daily: true # 日次サマリの所感
