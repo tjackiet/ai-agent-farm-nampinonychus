@@ -130,6 +130,7 @@ class Config:
     narrate_enabled: bool
     narrate_writer: str
     narrate_command: str
+    narrate_bare: bool
     narrate_timeout_sec: int
     narrate_model: str
     narrate_effort: str
@@ -248,6 +249,7 @@ def load(path: Path | str | None = None) -> Config:
         narrate_enabled=_bool(raw, "narrate.enabled"),
         narrate_writer=_str(raw, "narrate.writer"),
         narrate_command=_str(raw, "narrate.command"),
+        narrate_bare=_bool(raw, "narrate.bare"),
         narrate_timeout_sec=_int(raw, "narrate.timeout_sec"),
         narrate_model=_str(raw, "narrate.model"),
         narrate_effort=_str(raw, "narrate.effort"),

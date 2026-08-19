@@ -119,6 +119,47 @@ class WriterChoiceTest(unittest.TestCase):
             narrate.writer_for(config)
 
 
+class ClaudeCodeArgsTest(unittest.TestCase):
+    """claude -p の組み立て。課金の向き先が変わるため bare の扱いを固定する。"""
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.calls: list[list[str]] = []
+
+    def run_writer(self, config):
+        import subprocess
+
+        real = subprocess.run
+
+        def fake(argv, **kwargs):
+            self.calls.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, "書いた", "")
+
+        subprocess.run = fake
+        try:
+            narrate.claude_code_writer(config)("system", "user")
+        finally:
+            subprocess.run = real
+        return self.calls[0]
+
+    def test_既定ではbareを付けない(self):
+        """--bare はサブスクリプションを使わなくなるため、既定では付けない。"""
+        self.assertFalse(self.config.narrate_bare)
+        argv = self.run_writer(self.config)
+        self.assertNotIn("--bare", argv)
+        self.assertIn("-p", argv)
+        self.assertIn("--output-format", argv)
+
+    def test_bareを選べる(self):
+        config = dataclasses.replace(self.config, narrate_bare=True)
+        self.assertIn("--bare", self.run_writer(config))
+
+    def test_モデルと効力を渡す(self):
+        argv = self.run_writer(self.config)
+        self.assertIn(self.config.narrate_model, argv)
+        self.assertIn(self.config.narrate_effort, argv)
+
+
 class CommentTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
