@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from . import summary
-from .config import Config, REPO_ROOT
+from .config import Config, LlmSettings, REPO_ROOT
 
 # system, user を受け取って本文を返す。テストでは差し替える。
 Writer = Callable[[str, str], str]
@@ -63,7 +63,20 @@ def build_prompt(kind: str, root: Path | None = None) -> str:
     )
 
 
-def claude_code_writer(config: Config) -> Writer:
+def settings_of(config: Config) -> LlmSettings:
+    """言語化のための呼びかた。`narrate.*` をそのまま束ねる。"""
+    return LlmSettings(
+        writer=config.narrate_writer,
+        command=config.narrate_command,
+        bare=config.narrate_bare,
+        timeout_sec=config.narrate_timeout_sec,
+        model=config.narrate_model,
+        effort=config.narrate_effort,
+        max_tokens=config.narrate_max_tokens,
+    )
+
+
+def claude_code_writer(settings: LlmSettings | Config) -> Writer:
     """Claude Code CLI を非対話で呼ぶ。
 
     引かれ先は「headless かどうか」ではなく「何で認証されているか」で決まる。
@@ -72,51 +85,53 @@ def claude_code_writer(config: Config) -> Writer:
 
     `--bare` を付けると起動は軽く副作用もないが、keychain と OAuth を読まなくなるため
     ANTHROPIC_API_KEY が必須になる（= 必ず API 課金）。付けない場合は CLAUDE.md と
-    フックを毎回読み込む。どちらを取るかは agent.yaml の narrate.bare で決める。
+    フックを毎回読み込む。どちらを取るかは agent.yaml の bare で決める。
     """
+    llm = settings_of(settings) if isinstance(settings, Config) else settings
 
     def write(system: str, user: str) -> str:
         argv = [
-            config.narrate_command,
+            llm.command,
             "-p",
             "--output-format",
             "text",
             "--model",
-            config.narrate_model,
+            llm.model,
             "--effort",
-            config.narrate_effort,
+            llm.effort,
             "--append-system-prompt",
             system,
         ]
-        if config.narrate_bare:
+        if llm.bare:
             argv.insert(1, "--bare")
         proc = subprocess.run(  # noqa: S603
             argv,
             input=user,
             capture_output=True,
             text=True,
-            timeout=config.narrate_timeout_sec,
+            timeout=llm.timeout_sec,
             check=False,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"{config.narrate_command} が異常終了しました")
+            raise RuntimeError(f"{llm.command} が異常終了しました")
         return (proc.stdout or "").strip()
 
     return write
 
 
-def anthropic_writer(config: Config) -> Writer:
+def anthropic_writer(settings: LlmSettings | Config) -> Writer:
     """Anthropic API で書く。SDK か資格情報が無ければ ImportError / 例外。"""
+    llm = settings_of(settings) if isinstance(settings, Config) else settings
 
     def write(system: str, user: str) -> str:
         import anthropic  # 判断ロジックから切り離すため、ここで読み込む
 
         client = anthropic.Anthropic()
         response = client.messages.create(
-            model=config.narrate_model,
-            max_tokens=config.narrate_max_tokens,
+            model=llm.model,
+            max_tokens=llm.max_tokens,
             system=system,
-            output_config={"effort": config.narrate_effort},
+            output_config={"effort": llm.effort},
             messages=[{"role": "user", "content": user}],
         )
         return "".join(
@@ -126,13 +141,18 @@ def anthropic_writer(config: Config) -> Writer:
     return write
 
 
+def build_writer(settings: LlmSettings) -> Writer:
+    """呼びかたに応じた書き手を返す。言語化と拒否権の両方が使う。"""
+    if settings.writer == "api":
+        return anthropic_writer(settings)
+    if settings.writer == "claude_code":
+        return claude_code_writer(settings)
+    raise ValueError(f"writer が不正です: {settings.writer}")
+
+
 def writer_for(config: Config) -> Writer:
     """設定に応じた書き手を返す。"""
-    if config.narrate_writer == "api":
-        return anthropic_writer(config)
-    if config.narrate_writer == "claude_code":
-        return claude_code_writer(config)
-    raise ValueError(f"narrate.writer が不正です: {config.narrate_writer}")
+    return build_writer(settings_of(config))
 
 
 def _clean(text: str) -> str:

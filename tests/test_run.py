@@ -224,5 +224,113 @@ class CycleTest(unittest.TestCase):
         self.assertFalse((self.root / "var" / "status.yaml").exists())
 
 
+class VetoCycleTest(unittest.TestCase):
+    """1周のなかでの拒否権。止める方向にしか効かないことを確かめる。"""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.config = dataclasses.replace(
+            load_config(), dry_run=False, veto_enabled=True
+        )
+        self.asked: list[str] = []
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def reviewer(self, answer: str):
+        def write(system: str, user: str) -> str:
+            self.asked.append(user)
+            return answer
+
+        return write
+
+    def run_cycle(self, fake: FakeCli, answer: str = "PROCEED", config=None):
+        cfg = config if config is not None else self.config
+        client = cli.Client(cfg, runner=fake)
+        return run_once(
+            cfg, client, NOW, repo_root=self.root, reviewer=self.reviewer(answer)
+        )
+
+    def read_journal(self) -> list[dict]:
+        path = self.root / "var" / "memory" / "decisions" / "2026-08-18.jsonl"
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+    def test_止めれば発注しない(self):
+        fake = FakeCli(default_responses())
+        cycle = self.run_cycle(fake, "STOP: 落ち方が速い")
+        self.assertEqual(cycle.action, "HOLD")
+        self.assertEqual(cycle.orders, [])
+        self.assertNotIn("paper create-order", " ".join(fake.calls))
+        self.assertIn("落ち方が速い", cycle.reason)
+
+    def test_通せば決定的コードのまま発注する(self):
+        fake = FakeCli(default_responses())
+        cycle = self.run_cycle(fake, "PROCEED")
+        self.assertEqual(cycle.action, "BUY")
+        self.assertIn("paper create-order", " ".join(fake.calls))
+        self.assertFalse(cycle.veto["stopped"])
+
+    def test_諮ったことを判断ログに残す(self):
+        self.run_cycle(FakeCli(default_responses()), "STOP: 直近が荒い")
+        record = self.read_journal()[-1]
+        self.assertTrue(record["veto"]["consulted"])
+        self.assertTrue(record["veto"]["stopped"])
+        self.assertEqual(record["veto"]["reason"], "直近が荒い")
+
+    def test_HOLDの回は諮らない(self):
+        """買わない回に LLM を呼ぶと、15分ごとに無駄な課金が発生する。"""
+        cycle = self.run_cycle(FakeCli(default_responses(last=15_000_000)), "STOP: x")
+        self.assertEqual(cycle.action, "HOLD")
+        self.assertEqual(self.asked, [])
+        self.assertIsNone(cycle.veto)
+
+    def test_無効なら諮らない(self):
+        config = dataclasses.replace(self.config, veto_enabled=False)
+        cycle = self.run_cycle(FakeCli(default_responses()), "STOP: x", config=config)
+        self.assertEqual(cycle.action, "BUY")
+        self.assertEqual(self.asked, [])
+
+    def test_呼べなければon_failureに従って見送る(self):
+        config = dataclasses.replace(self.config, veto_on_failure="hold")
+
+        def broken(system, user):
+            raise RuntimeError("claude が異常終了しました")
+
+        fake = FakeCli(default_responses())
+        client = cli.Client(config, runner=fake)
+        cycle = run_once(config, client, NOW, repo_root=self.root, reviewer=broken)
+        self.assertEqual(cycle.action, "HOLD")
+        self.assertNotIn("paper create-order", " ".join(fake.calls))
+        self.assertTrue(any("拒否権" in w for w in cycle.warnings))
+
+    def test_呼べなくてもproceedなら運用は続く(self):
+        config = dataclasses.replace(self.config, veto_on_failure="proceed")
+
+        def broken(system, user):
+            raise RuntimeError("落ちた")
+
+        fake = FakeCli(default_responses())
+        client = cli.Client(config, runner=fake)
+        cycle = run_once(config, client, NOW, repo_root=self.root, reviewer=broken)
+        self.assertEqual(cycle.action, "BUY")
+        self.assertIn("paper create-order", " ".join(fake.calls))
+
+    def test_利確の売りは止められない(self):
+        """建玉を抱え続ける方向には関与させない。"""
+        responses = default_responses(
+            pnl=POSITION_PNL,
+            history=BUY_HISTORY,
+            assets=[
+                {"asset": "jpy", "total": 921430, "locked": 0, "available": 921430},
+                {"asset": "btc", "total": 0.0054, "locked": 0, "available": 0.0054},
+            ],
+        )
+        fake = FakeCli(responses)
+        cycle = self.run_cycle(fake, "STOP: 売らせない")
+        self.assertEqual(cycle.action, "SELL")
+        self.assertEqual(self.asked, [])
+
+
 if __name__ == "__main__":
     unittest.main()

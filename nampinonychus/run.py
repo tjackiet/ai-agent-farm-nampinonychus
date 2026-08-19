@@ -26,6 +26,7 @@ from . import (
     performance as performance_module,
     state as state_module,
     summary as summary_module,
+    veto as veto_module,
 )
 from . import timeutil
 from .orders import Executor, execute
@@ -45,6 +46,7 @@ class Cycle:
     warnings: list[str]
     error: str | None = None
     status_written: bool = False
+    veto: dict | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -58,6 +60,7 @@ class Cycle:
             "warnings": self.warnings,
             "error": self.error,
             "status_written": self.status_written,
+            "veto": self.veto,
         }
 
 
@@ -104,6 +107,41 @@ def _narrate(
         client.warnings.append(f"所感を書けませんでした: {type(exc).__name__}")
 
 
+def _review(
+    cfg: config_module.Config,
+    client: cli.Client,
+    decision: decide_module.Decision,
+    market: observe.Market | None,
+    state: state_module.State | None,
+    now: datetime,
+    repo_root: Path | None,
+    reviewer: narrate_module.Writer | None,
+) -> veto_module.Veto:
+    """買いを出す前に、止める権利だけを LLM に諮る。
+
+    諮る対象でない回（HOLD・売り・取消だけ）はここで何も呼ばない。
+    書き手を作れないこと自体も失敗として扱い、`veto.on_failure` に従う。
+    """
+    if not cfg.veto_enabled or not veto_module.is_reviewable(decision):
+        return veto_module.SKIPPED
+    try:
+        writer = reviewer or narrate_module.build_writer(cfg.veto_llm)
+    except Exception as exc:  # noqa: BLE001 - 書き手を作れない場合も失敗として扱う
+        result = veto_module.Veto(
+            consulted=True,
+            stopped=cfg.veto_on_failure == "hold",
+            error=f"{type(exc).__name__}: {exc}"[:300],
+        )
+    else:
+        records = journal.read_recent(cfg, now, cfg.veto_read_last_n, repo_root)
+        result = veto_module.review(
+            cfg, decision, market, state, now, writer, records
+        )
+    if result.error is not None:
+        client.warnings.append(f"拒否権を諮れませんでした: {result.error}")
+    return result
+
+
 def run_once(
     cfg: config_module.Config,
     client: cli.Client,
@@ -113,6 +151,7 @@ def run_once(
     repo_root: Path | None = None,
     notifier: notify_module.Poster | None = None,
     narrator: narrate_module.Writer | None = None,
+    reviewer: narrate_module.Writer | None = None,
 ) -> Cycle:
     dry_run = cfg.dry_run or force_dry_run
     run_id = timeutil.to_iso(now)
@@ -161,6 +200,13 @@ def run_once(
                 cfg, guards, market, spec, derived, now, stopped_hours
             )
 
+    veto = veto_module.SKIPPED
+    if error is None:
+        veto = _review(
+            cfg, client, decision, market, derived, now, repo_root, reviewer
+        )
+        decision = veto_module.apply(decision, veto)
+
     order_records: list[dict[str, Any]] = []
     if error is None and (decision.cancel or decision.place):
         executor = Executor(client=client, pair=cfg.pair, dry_run=dry_run)
@@ -202,6 +248,7 @@ def run_once(
         sources=client.sources,
         warnings=client.warnings,
         error=error,
+        veto=veto.as_dict() if veto.consulted else None,
     )
     journal.append(cfg, now, record, root=repo_root)
 
@@ -279,6 +326,7 @@ def run_once(
         warnings=list(client.warnings),
         error=error,
         status_written=status_written,
+        veto=veto.as_dict() if veto.consulted else None,
     )
 
 

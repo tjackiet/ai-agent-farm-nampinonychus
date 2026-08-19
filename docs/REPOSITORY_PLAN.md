@@ -38,6 +38,7 @@
 | 16  | ステータス鑑定機能                | **将来範囲**（下記）                |
 | 17  | この個体の動きの通知              | `agent.yaml` の `notify` / `nampinonychus/notify.py` |
 | 18  | 記録の言語化（所感・学び）        | `agent.yaml` の `narrate` / `nampinonychus/narrate.py` |
+| 19  | 買いを止める権利だけの LLM 拒否権 | `agent.yaml` の `veto` / `nampinonychus/veto.py` |
 
 いずれも**ナンピノニクス1個体のために作る**ものである。
 
