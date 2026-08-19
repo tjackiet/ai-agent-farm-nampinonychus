@@ -242,10 +242,36 @@ def _reprice_step_one(
     )
 
 
+def _cancel_extra_buys(state: State, name: str) -> Decision | None:
+    """買い指値が2本以上あるなら、余分なほうを取り消す。
+
+    各段の価格は直前の段の約定価格から決まるため、板に置ける買い指値は
+    常に1本だけになる。2本以上あるのは、古い約定を基準に組み立ててしまった
+    名残であり、段の間隔が設計より詰まっている。市場に近い1本だけ残す。
+    """
+    if len(state.pending_buy) <= 1:
+        return None
+    keep = max(state.pending_buy, key=lambda o: o.price)
+    cancel = tuple(o.id for o in state.pending_buy if o.id != keep.id)
+    return Decision(
+        action=HOLD,
+        state=name,
+        reason=(
+            f"買い指値が {len(state.pending_buy)} 本ある。"
+            f"段の基準にできないため、{keep.price} の1本を残して取り消す"
+        ),
+        cancel=cancel,
+    )
+
+
 def _next_buy(
     config: Config, market: Market, spec: PairSpec, state: State, name: str, now: datetime
 ) -> Decision:
     """次の段の買い指値を出せるか判断する。"""
+    extra = _cancel_extra_buys(state, name)
+    if extra is not None:
+        return extra
+
     repriced = _reprice_step_one(config, market, spec, state, name)
     if repriced is not None:
         return repriced
@@ -272,8 +298,12 @@ def _next_buy(
     step = config.ladder_steps[index]
     if step.base == "anchor":
         base_price = market.anchor
-    else:
+    elif pending == 0:
         base_price = state.ladder.last_fill_price_jpy
+    else:
+        # 直前の段がまだ板にあるなら、その約定価格は存在しない。
+        # 古い約定を基準にすると、段の間隔が設計より詰まってしまう。
+        base_price = None
     if base_price is None:
         return _hold(name, f"{step.step} 段目の基準となる約定がまだない")
 
