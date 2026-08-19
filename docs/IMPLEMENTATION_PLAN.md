@@ -50,6 +50,7 @@
 | 15  | `scripts/launchd/`                | 15分ごとの定期実行（macOS / launchd。Phase 7）              |
 | 16  | `nampinonychus/summary.py`        | 日次サマリと lessons の生成。所感と学びは空欄で残す         |
 | 17  | `nampinonychus/performance.py`    | 実績の集計（総資産の推移・ドローダウン・Buy&Hold 比較。Phase 8） |
+| 18  | `nampinonychus/notify.py`         | 動きの通知と半日ごとの振り返り（1方向。URL は環境変数から）  |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 

@@ -184,6 +184,25 @@ risk:
   # status.yaml の初期値と対応する。戦略上の状態遷移は IDLE から始まる。
   states: [NOT_INITIALIZED, IDLE, LADDERING, HOLDING, HIBERNATING, HALTED]
 
+# 動きがあったときの通知。Discord などの Webhook へ1方向で送る。
+# **URL は環境変数からのみ読む。** リポジトリにも判断ログにも書かない（CLAUDE.md）。
+# 通知に失敗しても判断には影響させない（送れなくても発注は続ける）。
+notify:
+  enabled: true
+  webhook_env: NAMPINONYCHUS_WEBHOOK_URL # この名前の環境変数から URL を読む
+  timeout_sec: 10
+
+  # 何を知らせるか。HOLD は1日 96 回になるため送らない。
+  # キー名を on にしないこと。YAML では on / off / yes / no が真偽値として解釈される。
+  events:
+    fill: true # 約定した
+    order: true # 発注・取消した
+    state_change: true # 状態が変わった（IDLE → LADDERING など）
+    error: true # 観測や発注に続けて失敗した
+
+  error_streak: 3 # 何回続けて失敗したら知らせるか（risk-policy.md の人間介入の基準に合わせる）
+  report_at: ["09:00", "21:00"] # 半日ごとの振り返りを送る時刻
+
 memory:
   # 運用の記録は var/ 配下に置く。実行のたびに作業ツリーが汚れると、
   # 15分ごとの運用で git の操作が止まるため（Git 管理外）。

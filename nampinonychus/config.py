@@ -127,6 +127,13 @@ class Config:
 
     status_output: str
     performance_output: str
+    notify_enabled: bool
+    notify_webhook_env: str
+    notify_timeout_sec: int
+    notify_on: dict
+    notify_error_streak: int
+    notify_report_at: tuple[str, ...]
+
     decisions_path: str
     decisions_read_last_n: int
     daily_path: str
@@ -229,6 +236,12 @@ def load(path: Path | str | None = None) -> Config:
         max_data_age_sec=_int(raw, "risk.guards.max_data_age_sec"),
         status_output=_str(raw, "agent.status_output"),
         performance_output=_str(raw, "agent.performance_output"),
+        notify_enabled=_bool(raw, "notify.enabled"),
+        notify_webhook_env=_str(raw, "notify.webhook_env"),
+        notify_timeout_sec=_int(raw, "notify.timeout_sec"),
+        notify_on={str(k): bool(v) for k, v in _get(raw, "notify.events").items()},
+        notify_error_streak=_int(raw, "notify.error_streak"),
+        notify_report_at=tuple(str(t) for t in _get(raw, "notify.report_at")),
         decisions_path=_str(raw, "memory.decisions.path"),
         decisions_read_last_n=_int(raw, "memory.decisions.read_last_n"),
         daily_path=_str(raw, "memory.daily.path"),
