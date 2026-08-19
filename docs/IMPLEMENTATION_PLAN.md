@@ -51,6 +51,7 @@
 | 16  | `nampinonychus/summary.py`        | 日次サマリと lessons の生成。所感と学びは空欄で残す         |
 | 17  | `nampinonychus/performance.py`    | 実績の集計（総資産の推移・ドローダウン・Buy&Hold 比較。Phase 8） |
 | 18  | `nampinonychus/notify.py`         | 動きの通知と半日ごとの振り返り（1方向。URL は環境変数から）  |
+| 19  | `nampinonychus/narrate.py`        | 記録の言語化（所感・学び）。売買の判断には関与しない         |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
@@ -341,6 +342,9 @@ Artifact で、実績から判定されたエモート画像が表示される�
 - 出力は判断1件ぶんの JSON（`action` / `reason` / `orders` / `sources`）。
   人間向けの言い換えは Claude Code 側で行ってよいが、
   **数値を作り直さない**（`memory-policy.md`）。
+- LLM を使うのは**記録の言語化だけ**（`narrate.py`）。所感と学びを書くために
+  Claude Code CLI（`claude -p`）または Anthropic API を呼ぶが、
+  **売買の判断には一切関与しない。** 書けなくても運用は続く。
 - `.claude/settings.json` の `permissions.deny` に禁止コマンドを登録し、
   `CLAUDE.md` の禁止事項をハーネス側でも二重化する。
   これはエージェント側のルールの置き換えではなく、二重化である。

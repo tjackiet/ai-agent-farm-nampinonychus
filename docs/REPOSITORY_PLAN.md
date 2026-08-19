@@ -37,6 +37,7 @@
 | 15  | 表示用パッケージのエクスポート処理 | `scripts/export_agent_package.py`  |
 | 16  | ステータス鑑定機能                | **将来範囲**（下記）                |
 | 17  | この個体の動きの通知              | `agent.yaml` の `notify` / `nampinonychus/notify.py` |
+| 18  | 記録の言語化（所感・学び）        | `agent.yaml` の `narrate` / `nampinonychus/narrate.py` |
 
 いずれも**ナンピノニクス1個体のために作る**ものである。
 
