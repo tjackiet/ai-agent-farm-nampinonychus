@@ -33,7 +33,7 @@ agent:
   name_en: Nampinonychus
   tagline: 下落を待ち、下落を買う
   archetype: contrarian-dca # 逆張り・ナンピン型
-  phase: design # design | paper | halted
+  phase: paper # design | paper | halted
   documents:
     personality: personality.md
     strategy: strategy.md
@@ -52,7 +52,7 @@ runtime:
   timezone: Asia/Tokyo
   max_runtime_sec: 120 # 1回の判断にかける上限
   on_error: hold # 例外・不明時は必ず HOLD（発注しない）
-  dry_run: true # 設計段階では発注コマンドを組み立てるのみ
+  dry_run: false # 設計段階では発注コマンドを組み立てるのみ
 
 market:
   exchange: bitbank
