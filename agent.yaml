@@ -218,6 +218,32 @@ narrate:
     lessons: true # 建玉が完結したときの学び
     report: true # 半日ごとの振り返りへの一言
 
+# 買いを止める権利だけを LLM に渡す（docs/IMPLEMENTATION_PLAN.md「判断を LLM へ移すこと」段階2）。
+#
+# 決定的コードが BUY と決めたあとにだけ通し、**止める方向にしか関与させない。**
+# 買わせる方向・数量・価格には一切関与しない。止めた回は取消も発注もせず、
+# 板の状態を変えないまま次の回に持ち越す。
+#
+# 既定は無効。有効にするかどうかは人間が決める（CLAUDE.md）。
+veto:
+  enabled: false
+
+  # LLM を呼べなかった・答えが読めなかったときの扱い。
+  # proceed: 決定的コードの判断をそのまま通す（最悪ケースは LLM 無しのときと同じ）
+  # hold   : この回は何もしない（誤発注より機会損失を取る）
+  on_failure: hold
+
+  read_last_n: 16 # 直近の判断ログを何件見せるか（16 件 = 約4時間）
+
+  # 呼びかたは narrate と同じ形。意味も同じなので narrate 側の説明を参照。
+  writer: claude_code # claude_code | api
+  command: claude
+  bare: false
+  timeout_sec: 120
+  model: claude-sonnet-5 # Fable / Mythos 系は config.py が弾く
+  effort: high # low | medium | high | xhigh | max
+  max_tokens: 500 # writer=api のときだけ使う
+
 # 動きがあったときの通知。Discord などの Webhook へ1方向で送る。
 # **URL は環境変数からのみ読む。** リポジトリにも判断ログにも書かない（CLAUDE.md）。
 # 通知に失敗しても判断には影響させない（送れなくても発注は続ける）。

@@ -93,6 +93,31 @@ class TakeProfit:
 
 
 @dataclass(frozen=True)
+class LlmSettings:
+    """LLM の呼びかた。言語化（narrate）と拒否権（veto）が同じ形で持つ。"""
+
+    writer: str
+    command: str
+    bare: bool
+    timeout_sec: int
+    model: str
+    effort: str
+    max_tokens: int
+
+
+def _llm_settings(raw: Any, prefix: str) -> LlmSettings:
+    return LlmSettings(
+        writer=_str(raw, f"{prefix}.writer"),
+        command=_str(raw, f"{prefix}.command"),
+        bare=_bool(raw, f"{prefix}.bare"),
+        timeout_sec=_int(raw, f"{prefix}.timeout_sec"),
+        model=_model(raw, f"{prefix}.model"),
+        effort=_str(raw, f"{prefix}.effort"),
+        max_tokens=_int(raw, f"{prefix}.max_tokens"),
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     """agent.yaml の内容。すべて読み取り専用。"""
 
@@ -153,6 +178,11 @@ class Config:
     narrate_max_tokens: int
     narrate_targets: dict
 
+    veto_enabled: bool
+    veto_on_failure: str
+    veto_read_last_n: int
+    veto_llm: LlmSettings
+
     notify_enabled: bool
     notify_webhook_env: str
     notify_timeout_sec: int
@@ -169,6 +199,22 @@ class Config:
     lessons_max_entries: int
 
     raw: dict
+
+
+# LLM を呼べなかったときにどうするか。
+# proceed: 決定的コードの判断をそのまま通す（最悪ケースは LLM 無しのときと同じ）
+# hold   : この回は何もしない（CLAUDE.md「判断できないときは HOLD」に寄せる）
+ON_FAILURE_CHOICES = ("proceed", "hold")
+
+
+def _on_failure(raw: Any) -> str:
+    value = _str(raw, "veto.on_failure")
+    if value not in ON_FAILURE_CHOICES:
+        raise ConfigError(
+            f"agent.yaml の veto.on_failure は "
+            f"{' か '.join(ON_FAILURE_CHOICES)} のどちらかです: {value}"
+        )
+    return value
 
 
 def load(path: Path | str | None = None) -> Config:
@@ -271,6 +317,10 @@ def load(path: Path | str | None = None) -> Config:
         narrate_effort=_str(raw, "narrate.effort"),
         narrate_max_tokens=_int(raw, "narrate.max_tokens"),
         narrate_targets={str(k): bool(v) for k, v in _get(raw, "narrate.targets").items()},
+        veto_enabled=_bool(raw, "veto.enabled"),
+        veto_on_failure=_on_failure(raw),
+        veto_read_last_n=_int(raw, "veto.read_last_n"),
+        veto_llm=_llm_settings(raw, "veto"),
         notify_enabled=_bool(raw, "notify.enabled"),
         notify_webhook_env=_str(raw, "notify.webhook_env"),
         notify_timeout_sec=_int(raw, "notify.timeout_sec"),
