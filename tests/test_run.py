@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -183,6 +184,36 @@ class CycleTest(unittest.TestCase):
         self.assertEqual(cycle.action, "HOLD")
         self.assertIn("約定していた", cycle.reason)
         self.assertNotIn("paper create-order", " ".join(fake.calls))
+
+    def test_発注したら通知する(self):
+        config = dataclasses.replace(self.config, dry_run=False)
+        sent: list[str] = []
+        client = cli.Client(config, runner=FakeCli(default_responses()))
+        run_once(
+            config,
+            client,
+            NOW,
+            repo_root=self.root,
+            notifier=lambda url, content, timeout: sent.append(content),
+        )
+        # URL が未設定なので送信自体は行われず、警告だけが残る
+        self.assertTrue(any("通知" in w for w in client.warnings))
+
+    def test_通知に失敗しても判断は止めない(self):
+        config = dataclasses.replace(self.config, dry_run=False)
+        os.environ[config.notify_webhook_env] = "https://example.invalid/hook"
+        try:
+            def broken(url, content, timeout):
+                raise OSError("接続できません")
+
+            client = cli.Client(config, runner=FakeCli(default_responses()))
+            cycle = run_once(config, client, NOW, repo_root=self.root, notifier=broken)
+        finally:
+            os.environ.pop(config.notify_webhook_env, None)
+        self.assertEqual(cycle.action, "BUY")
+        self.assertIsNone(cycle.error)
+        self.assertTrue(cycle.status_written)
+        self.assertTrue(any("送れませんでした" in w for w in cycle.warnings))
 
     def test_発注に失敗したらstatusを更新しない(self):
         config = dataclasses.replace(self.config, dry_run=False)

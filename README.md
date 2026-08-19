@@ -242,6 +242,41 @@ launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
 - `var/run.log` は1回あたり1行（約1KB）です。放置すると増え続けるので、
   ときどき消してください。判断の記録は `var/memory/decisions/` に残ります。
 
+## 通知（任意）
+
+動きがあったときに Discord などの Webhook へ1方向で送れます。設定は
+`agent.yaml` の `notify`、**URL は環境変数からのみ**読みます。
+
+```bash
+export NAMPINONYCHUS_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+```
+
+launchd から動かす場合は、plist の `EnvironmentVariables` に足してください。
+
+送るのは次の4つだけです。**HOLD は送りません**（1日 96 回になるため）。
+
+| 出来事 | 例 |
+| --- | --- |
+| 約定 | `約定 買い 10,282,738 × 0.0077（79,177 JPY）` |
+| 発注・取消 | `発注 tp-1 売り 10,313,586 × 0.0038` |
+| 状態の変化 | `状態 IDLE → LADDERING` |
+| 続けて失敗 | `3回続けて失敗しています: …` |
+
+`notify.report_at`（既定 09:00 / 21:00）には、振り返りを送ります。
+
+```
+**2026-08-19T21:02:00+09:00 の振り返り**
+総資産 1,000,712 JPY (+0.07%) / 24時間 +0.07%
+最高からの下落 0.00% / 24時間の約定 3件
+建玉 0.0087 BTC / 平均取得単価 10,254,076 / 2 段目
+板 買い 1本 / 売り 2本
+```
+
+- **通知は判断に影響しません。** 送れなくても発注は続きます。
+- URL はリポジトリにも判断ログにも書きません。失敗の記録にも含めません。
+- 環境変数が未設定なら、単に送らずに警告を残します。
+- 寝ていて `report_at` を過ぎた場合は、起きた最初の実行で送ります。
+
 ## 表示用パッケージ
 
 Claude Desktop の HTML Artifact へは、正本の YAML とキャラクター画像を1つの JSON（`*.agent.json`）にまとめて渡します。生成は `scripts/export_agent_package.py` が行います（「セットアップ」の仮想環境を使います）。
@@ -307,6 +342,9 @@ Homebrew や OS 付属の Python では、`pip install` が
 - 判断ログは `var/memory/decisions/{date}.jsonl` へ追記されます。HOLD でも必ず残します。
 - スナップショットは `var/status.yaml` へ、成功した回だけ書き出します。
   途中で失敗した回は更新しません。
+- 実績は `var/performance.yaml` へ書き出します（成績連動エモートの判定に使います）。
+  日次サマリは `var/memory/daily/`、建玉が完結したときの記録は
+  `var/memory/lessons.md` に残ります。
 - **運用の産物はすべて `var/` 配下（Git 管理外）です。** 実行しても作業ツリーは汚れません。
   リポジトリ直下の `status.yaml` はスキーマの見本として固定です。
 - `--dry-run` は **agent.yaml より安全側にのみ**倒せます。実際に発注させるときは

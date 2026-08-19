@@ -74,6 +74,7 @@ def build_record(
     orders: Sequence[dict],
     sources: Sequence[Source],
     warnings: Sequence[str] = (),
+    error: str | None = None,
 ) -> dict:
     return {
         "run_id": run_id,
@@ -90,4 +91,5 @@ def build_record(
         "orders": list(orders),
         "sources": [s.as_dict() for s in sources],
         "warnings": list(warnings),
+        "error": error,
     }

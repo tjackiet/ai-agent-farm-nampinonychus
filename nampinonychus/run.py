@@ -20,7 +20,9 @@ from . import (
     config as config_module,
     decide as decide_module,
     journal,
+    notify as notify_module,
     observe,
+    performance as performance_module,
     state as state_module,
     summary as summary_module,
 )
@@ -59,8 +61,12 @@ class Cycle:
 
 
 def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetime, last_price):
-    """ペーパー口座を観測して状態を導出する。"""
-    client.paper_tick()
+    """ペーパー口座を観測して状態を導出する。
+
+    `paper tick` が返す `filled` は「前回からこの回までに約定したもの」。
+    通知に使うため、最初の観測のぶんだけ拾っておく。
+    """
+    tick = client.paper_tick().data
     assets = client.paper_assets().data
     pnl = client.paper_pnl(cfg.pair).data
     orders = client.paper_active_orders().data
@@ -77,7 +83,8 @@ def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetim
         history_rows=history,
     )
     trades = state_module.parse_trades(history, cfg.pair, cfg.timezone)
-    return derived, trades
+    filled = tick.get("filled", []) if isinstance(tick, dict) else []
+    return derived, trades, filled if isinstance(filled, list) else []
 
 
 def run_once(
@@ -87,6 +94,7 @@ def run_once(
     *,
     force_dry_run: bool = False,
     repo_root: Path | None = None,
+    notifier: notify_module.Poster | None = None,
 ) -> Cycle:
     dry_run = cfg.dry_run or force_dry_run
     run_id = timeutil.to_iso(now)
@@ -98,7 +106,10 @@ def run_once(
     spec = None
     derived = None
     trades: tuple[state_module.Trade, ...] = ()
+    fills: list[dict] = []
     error: str | None = None
+    # 通知の差分をとるため、スナップショットを上書きする前に読む。判断には使わない。
+    previous = notify_module.read_previous(cfg, repo_root)
 
     stopped_hours: float | None = None
     try:
@@ -107,7 +118,7 @@ def run_once(
         spec = observe.observe_pair_spec(client, cfg)
         # ペーパー口座に触る前に測る。tick も lazy tick も lastTickAt を進めるため。
         stopped_hours = state_module.stopped_hours(cfg, now, repo_root)
-        derived, trades = _observe_account(client, cfg, now, market.last)
+        derived, trades, fills = _observe_account(client, cfg, now, market.last)
     except cli.CliError as exc:
         error = f"{exc}（{exc.cmd}）"
     except (ValueError, KeyError, TypeError) as exc:
@@ -154,7 +165,7 @@ def run_once(
     # 実際に注文を出した回は、スナップショットを取り直す。
     if error is None and not dry_run and order_records:
         try:
-            derived, trades = _observe_account(client, cfg, now, market.last)
+            derived, trades, _ = _observe_account(client, cfg, now, market.last)
         except (cli.CliError, ValueError, KeyError, TypeError) as exc:
             error = f"発注後の観測に失敗した: {exc}"
 
@@ -172,6 +183,7 @@ def run_once(
         orders=order_records,
         sources=client.sources,
         warnings=client.warnings,
+        error=error,
     )
     journal.append(cfg, now, record, root=repo_root)
 
@@ -195,11 +207,38 @@ def run_once(
         status_written = True
 
     # 記録の集約。判断そのものには影響しないため、失敗しても HOLD にはしない。
+    performance_doc: dict | None = None
+    # 判断ログを書いたあとに読む。この回の記録も集計と通知に含めるため。
+    all_records = performance_module.all_records(cfg, repo_root)
     if error is None and derived is not None:
         try:
             summary_module.ensure(cfg, now, trades, repo_root)
+            performance_doc = performance_module.build(cfg, now, all_records, trades)
+            performance_module.write(
+                performance_doc,
+                (repo_root if repo_root is not None else config_module.REPO_ROOT)
+                / cfg.performance_output,
+            )
         except OSError as exc:
-            client.warnings.append(f"日次サマリを書けませんでした: {exc}")
+            client.warnings.append(f"記録を書けませんでした: {exc}")
+
+    # 通知。送れなくても判断には影響させない。
+    messages = notify_module.build_messages(
+        config=cfg,
+        now=now,
+        previous=previous,
+        decision_state=decision.state,
+        fills=fills,
+        orders=order_records,
+        records=all_records,
+    )
+    if performance_doc is not None and notify_module.crossed_report_times(
+        cfg, previous.at, now
+    ):
+        messages.append(notify_module.build_report(cfg, now, performance_doc, derived))
+    failure = notify_module.send(cfg, messages, poster=notifier)
+    if failure:
+        client.warnings.append(failure)
 
     return Cycle(
         run_id=run_id,

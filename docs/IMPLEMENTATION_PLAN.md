@@ -49,6 +49,8 @@
 | 14  | `tests/`                          | 判断ロジックとガードのテスト（実行方法は `README.md`「セットアップ」） |
 | 15  | `scripts/launchd/`                | 15分ごとの定期実行（macOS / launchd。Phase 7）              |
 | 16  | `nampinonychus/summary.py`        | 日次サマリと lessons の生成。所感と学びは空欄で残す         |
+| 17  | `nampinonychus/performance.py`    | 実績の集計（総資産の推移・ドローダウン・Buy&Hold 比較。Phase 8） |
+| 18  | `nampinonychus/notify.py`         | 動きの通知と半日ごとの振り返り（1方向。URL は環境変数から）  |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
@@ -446,10 +448,7 @@ Artifact とエモート判定のデータ構造が先行して存在する現�
 
 以下は本書では決めない。実装着手前に人間が判断する。
 
-1. 実運用時の performance ファイルの正式な名前と置き場所
-   （エクスポート処理の既定値は `records/performance.yaml`。Phase 8 で確定する。
-   `records/performance.sample.yaml` はサンプル専用）
-2. 画像1枚あたりのサイズ目安（Data URL 埋め込みでパッケージが過大にならないための上限）
+1. 画像1枚あたりのサイズ目安（Data URL 埋め込みでパッケージが過大にならないための上限）
 3. `character-design.yaml` の形式詳細（`schema_version` ほか。Phase 3 で確定）
 
 以下は判断済みである（2026-08 時点）。
@@ -467,6 +466,8 @@ Artifact とエモート判定のデータ構造が先行して存在する現�
   `status.yaml` は状態の正ではなくスナップショット（`memory-policy.md` を更新済み）
 - ペーパートレードの状態ファイルは `var/paper-state.json`（Git 管理外）。
   `BITBANK_PAPER_STATE_PATH` で CLI へ渡す
+- 実運用の実績は `var/performance.yaml`（`agent.yaml` の `agent.performance_output`）。
+  `records/performance.sample.yaml` はサンプル専用で別物（旧「未確定事項1」の結論）
 - **運用の産物は `var/` 配下にまとめ、Git では追跡しない。**
   判断ログは `var/memory/`、スナップショットは `var/status.yaml`。
   リポジトリ直下の `status.yaml` はスキーマの見本として固定する。
