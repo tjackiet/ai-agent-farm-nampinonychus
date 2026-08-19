@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ナンピノニクスを15分ごとに実行する launchd の定義（雛形）。
+  __REPO__ と __PATH__ を置き換えてから ~/Library/LaunchAgents へ置く。
+  手順は README.md「定期実行」を参照。
+
+  PATH を明示するのは、launchd の既定の PATH に npm のグローバル配置先が
+  含まれず、bitbank コマンドが見つからないため。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.nampinonychus</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__REPO__/.venv/bin/python</string>
+    <string>-m</string>
+    <string>nampinonychus.run</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+  </dict>
+
+  <!-- 15分ごと。スリープ中は動かず、復帰後に一度だけ実行される。 -->
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__REPO__/var/run.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/var/run.err.log</string>
+</dict>
+</plist>

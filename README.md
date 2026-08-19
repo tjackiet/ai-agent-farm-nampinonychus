@@ -39,7 +39,8 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── records/
 │   └── performance.sample.yaml
 ├── scripts/
-│   └── export_agent_package.py
+│   ├── export_agent_package.py
+│   └── launchd/            # 定期実行の雛形（macOS）
 ├── examples/
 │   └── nampinonychus.sample.agent.json
 └── docs/
@@ -182,6 +183,40 @@ HTML ステータス画面は、`agent.yaml` の `version` から `major` を読
 **実績データはローカルで更新します。15分ごとに GitHub へコミットしません。**
 
 リポジトリが持つのは判定ルールとサンプルであり、稼働中の実績そのものはリポジトリの更新頻度と切り離します。
+
+## 定期実行（macOS / launchd）
+
+15分ごとに自動で回します。雛形は `scripts/launchd/local.nampinonychus.plist` です。
+
+```bash
+cd ~/ai-agent-farm-nampinonychus
+mkdir -p var
+
+sed -e "s|__REPO__|$PWD|g" \
+    -e "s|__PATH__|$(dirname "$(which bitbank)"):/usr/bin:/bin:/usr/sbin:/sbin|g" \
+    scripts/launchd/local.nampinonychus.plist \
+    > ~/Library/LaunchAgents/local.nampinonychus.plist
+
+launchctl load ~/Library/LaunchAgents/local.nampinonychus.plist
+```
+
+確認と停止:
+
+```bash
+launchctl list | grep nampinonychus     # 動いているか
+tail -f var/run.log                     # 判断を1行ずつ眺める
+launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
+```
+
+- **`PATH` を明示するのは必須です。** launchd の既定の `PATH` には npm の
+  グローバル配置先が含まれず、`bitbank` が見つかりません。
+- **スリープ中は動きません。** ノートの蓋を閉じれば止まり、復帰後に一度だけ実行されます。
+  停止していた間の判断は補完しません。
+- **24時間を超えて止まった場合は、自動で復帰処理が走ります。**
+  未約定の指値をすべて取り消し、その回は何もしません
+  （`risk-policy.md`「運用を中断したあとの復帰」）。
+- `var/run.log` は1回あたり1行（約1KB）です。放置すると増え続けるので、
+  ときどき消してください。判断の記録は `var/memory/decisions/` に残ります。
 
 ## 表示用パッケージ
 
