@@ -85,7 +85,8 @@ class BuyTest(unittest.TestCase):
 
     def test_未約定の段があるうちは次の段を出さない(self):
         """2段目の基準は直前の約定価格なので、1段目が約定するまで価格が決まらない。"""
-        current = state(pending_buy=[open_order("o1", "buy", "14550000", "0.0054")])
+        # アンカーどおりの価格に置いてある（置き直しは起きない）状態にする。
+        current = state(pending_buy=[open_order("o1", "buy", "14925000", "0.0053")])
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
         self.assertIn("基準となる約定がまだない", decision.reason)
@@ -206,6 +207,80 @@ class BuyTest(unittest.TestCase):
         self.assertEqual(decision.place[0].label, "step-2")
 
 
+class RepriceTest(unittest.TestCase):
+    """1段目の買い指値をアンカーへ追従させる。"""
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def decide(self, current, anchor="15000000", last="14700000"):
+        return decide(
+            self.config, guards(), market(last=last, anchor=anchor), pair_spec(), current, NOW
+        )
+
+    def test_アンカーが動いたら置き直す(self):
+        current = state(pending_buy=[open_order("o1", "buy", "14700000", "0.0054")])
+        decision = self.decide(current)
+        self.assertEqual(decision.action, BUY)
+        self.assertEqual(decision.cancel, ("o1",))
+        self.assertEqual(decision.place[0].price, Decimal("14925000"))
+        self.assertEqual(decision.place[0].label, "step-1")
+        self.assertIn("置き直す", decision.reason)
+
+    def test_ずれが小さければ触らない(self):
+        """しきい値（0.1%）未満のずれでは、無駄な取消をしない。"""
+        current = state(pending_buy=[open_order("o1", "buy", "14920000", "0.0053")])
+        decision = self.decide(current)
+        self.assertEqual(decision.action, HOLD)
+        self.assertEqual(decision.cancel, ())
+
+    def test_アンカーが下がっても置き直す(self):
+        """上に取り残されると、ルールより高い位置で買うことになる。"""
+        current = state(pending_buy=[open_order("o1", "buy", "14925000", "0.0053")])
+        decision = self.decide(current, anchor="14000000", last="13900000")
+        self.assertEqual(decision.action, BUY)
+        self.assertEqual(decision.cancel, ("o1",))
+        self.assertEqual(decision.place[0].price, Decimal("13930000"))
+
+    def test_2段目以降は動かさない(self):
+        """直前の約定価格が基準なので、アンカーが動いても関係ない。"""
+        current = state(
+            position="0.0054",
+            avg_cost="14550000",
+            step=1,
+            used_budget="78570",
+            last_fill_price="14550000",
+            last_fill_at="2026-08-17T00:00:00+09:00",
+            cooldown_until="2026-08-17T06:00:00+09:00",
+            cash="921430",
+            pending_buy=[open_order("b2", "buy", "14477250", "0.0069")],
+            pending_sell=[
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0027"),
+            ],
+        )
+        decision = self.decide(current)
+        self.assertEqual(decision.cancel, ())
+        self.assertNotIn("置き直す", decision.reason)
+
+    def test_予算が足りなければ取り消さない(self):
+        """置き直せないなら、いまの注文を残す。取り消しただけで終わらせない。"""
+        # 現金の下限（初期資金の20%）に阻まれる状態。
+        # 取り消しで戻るぶんを足しても予算が出ない。
+        current = state(
+            cash="1000000",
+            cash_available="120000",
+            pending_buy=[open_order("o1", "buy", "14700000", "0.0054")],
+        )
+        decision = self.decide(current)
+        self.assertEqual(decision.cancel, ())
+
+    def test_置き直した数量は予算に収まる(self):
+        current = state(pending_buy=[open_order("o1", "buy", "14700000", "0.0054")])
+        order = self.decide(current).place[0]
+        self.assertLessEqual(order.price * order.amount, Decimal(80000))
+
+
 class SellTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
@@ -284,6 +359,26 @@ class RiskTest(unittest.TestCase):
         self.assertEqual(decision.state, "HIBERNATING")
         self.assertEqual(decision.action, HOLD)
         self.assertIn("新規買いを停止", decision.reason)
+
+    def test_冬眠中は板に残った買い指値を取り消す(self):
+        """放置すると約定して建玉が増え、「新規買いを全面停止」が守れない。"""
+        current = state(
+            position="0.0055",
+            avg_cost="14550000",
+            step=1,
+            cash="760000",
+            equity="840000",
+            pending_buy=[open_order("b1", "buy", "14477250", "0.0069")],
+            pending_sell=[
+                open_order("s1", "sell", "14593650", "0.0027"),
+                open_order("s2", "sell", "14637300", "0.0028"),
+            ],
+        )
+        decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
+        self.assertEqual(decision.state, "HIBERNATING")
+        self.assertEqual(decision.action, HOLD)
+        self.assertEqual(decision.cancel, ("b1",))
+        self.assertEqual(decision.place, ())
 
     def test_冬眠中でも利確の売り指値は維持する(self):
         current = state(

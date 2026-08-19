@@ -188,12 +188,34 @@ HTML ステータス画面は、`agent.yaml` の `version` から `major` を読
 
 15分ごとに自動で回します。雛形は `scripts/launchd/local.nampinonychus.plist` です。
 
+まず `bitbank` と `node` の**両方**が入っているディレクトリを求めます。
+`bitbank` は `#!/usr/bin/env node` で起動するため、`node` も PATH に必要です。
+
 ```bash
 cd ~/ai-agent-farm-nampinonychus
 mkdir -p var
 
+NODE_BIN="$(python3 -c "import os,shutil;print(os.path.dirname(os.path.realpath(shutil.which('node'))))")"
+ls "$NODE_BIN/bitbank" "$NODE_BIN/node"
+```
+
+**`which bitbank` の結果をそのまま使ってはいけません。** fnm / nvm / volta などの
+バージョン管理ツールは、シェルごとに使い捨てのディレクトリ
+（例：`.../fnm_multishells/8655_1787064548028/bin`）を PATH に挿します。
+そのシェルを閉じると消えるため、launchd から `bitbank` が見つからなくなり、
+毎回 HOLD するだけの状態になります。`realpath` で実体まで解決してください。
+
+launchd と同じ環境（環境変数なし）で動くかを、先に確かめられます。
+
+```bash
+env -i PATH="$NODE_BIN:/usr/bin:/bin" bitbank status --format=json --machine | head -c 60
+```
+
+`{"success":true` が出れば大丈夫です。登録します。
+
+```bash
 sed -e "s|__REPO__|$PWD|g" \
-    -e "s|__PATH__|$(dirname "$(which bitbank)"):/usr/bin:/bin:/usr/sbin:/sbin|g" \
+    -e "s|__PATH__|$NODE_BIN:/usr/bin:/bin:/usr/sbin:/sbin|g" \
     scripts/launchd/local.nampinonychus.plist \
     > ~/Library/LaunchAgents/local.nampinonychus.plist
 
@@ -210,6 +232,8 @@ launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
 
 - **`PATH` を明示するのは必須です。** launchd の既定の `PATH` には npm の
   グローバル配置先が含まれず、`bitbank` が見つかりません。
+- **Node のバージョンを上げたら、登録し直してください。** `PATH` に
+  バージョン番号が含まれるためです。
 - **スリープ中は動きません。** ノートの蓋を閉じれば止まり、復帰後に一度だけ実行されます。
   停止していた間の判断は補完しません。
 - **24時間を超えて止まった場合は、自動で復帰処理が走ります。**

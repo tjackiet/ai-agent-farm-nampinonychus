@@ -102,6 +102,7 @@ class Config:
     max_pending_buy_orders: int
     cooldown_hours_after_fill: float
     max_fills_per_day: int
+    reprice_threshold_pct: float
 
     ladder_max_steps: int
     ladder_total_budget_jpy: float
@@ -203,6 +204,7 @@ def load(path: Path | str | None = None) -> Config:
         max_pending_buy_orders=_int(raw, "strategy.entry.max_pending_buy_orders"),
         cooldown_hours_after_fill=_num(raw, "strategy.entry.cooldown_hours_after_fill"),
         max_fills_per_day=_int(raw, "strategy.entry.max_fills_per_day"),
+        reprice_threshold_pct=_num(raw, "strategy.entry.reprice_threshold_pct"),
         ladder_max_steps=_int(raw, "strategy.ladder.max_steps"),
         ladder_total_budget_jpy=_num(raw, "strategy.ladder.total_budget_jpy"),
         ladder_steps=steps,
