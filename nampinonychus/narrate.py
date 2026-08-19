@@ -64,10 +64,15 @@ def build_prompt(kind: str, root: Path | None = None) -> str:
 
 
 def claude_code_writer(config: Config) -> Writer:
-    """Claude Code CLI を非対話で呼ぶ。API キーは要らない。
+    """Claude Code CLI を非対話で呼ぶ。
 
-    `--bare` は使わない。あれは keychain と OAuth を読まなくなるため、
-    かえって API キーが必須になる。
+    引かれ先は「headless かどうか」ではなく「何で認証されているか」で決まる。
+    Claude Code のログイン（サブスクリプション）ならプランの利用枠から、
+    環境に ANTHROPIC_API_KEY があればそちらが優先されて API クレジットから引かれる。
+
+    `--bare` を付けると起動は軽く副作用もないが、keychain と OAuth を読まなくなるため
+    ANTHROPIC_API_KEY が必須になる（= 必ず API 課金）。付けない場合は CLAUDE.md と
+    フックを毎回読み込む。どちらを取るかは agent.yaml の narrate.bare で決める。
     """
 
     def write(system: str, user: str) -> str:
@@ -83,6 +88,8 @@ def claude_code_writer(config: Config) -> Writer:
             "--append-system-prompt",
             system,
         ]
+        if config.narrate_bare:
+            argv.insert(1, "--bare")
         proc = subprocess.run(  # noqa: S603
             argv,
             input=user,

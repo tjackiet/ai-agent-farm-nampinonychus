@@ -249,14 +249,35 @@ launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
 
 書き手は2つから選べます（`agent.yaml` の `narrate.writer`）。
 
-| 設定 | 呼ぶもの | 資格情報 |
+| 設定 | 呼ぶもの | 追加の依存 |
 | --- | --- | --- |
-| `claude_code`（既定） | Claude Code CLI（`claude -p`） | **不要**（Claude Code のログインをそのまま使う） |
-| `api` | Anthropic API | `ANTHROPIC_API_KEY` など。別途 `pip install anthropic` |
+| `claude_code`（既定） | Claude Code CLI（`claude -p`） | なし |
+| `api` | Anthropic API | `pip install anthropic` |
 
-既定が `claude_code` なので、**API キーを用意しなくても動きます。** launchd から使う場合は、
-`bitbank` と同じく `claude` も PATH に入っている必要があります（npm でグローバルに入れて
-いれば同じディレクトリです）。
+### 課金がどこから引かれるか
+
+**「headless かどうか」では決まりません。Claude Code が何で認証されているかで決まります。**
+
+| 認証 | 引かれ先 |
+| --- | --- |
+| claude.ai のログイン（`claude /login`） | プランの利用枠（5時間・週のウィンドウ） |
+| 環境に `ANTHROPIC_API_KEY` がある / Console ログイン | API クレジット |
+
+**環境変数の API キーが優先されます。** launchd の `EnvironmentVariables` に
+`ANTHROPIC_API_KEY` を入れていると、サブスクリプションではなく API から引かれます。
+
+`narrate.bare` で `--bare` の有無も選べます。
+
+| | 認証 | 起動 | 副作用 |
+| --- | --- | --- | --- |
+| `bare: false`（既定） | ログインをそのまま使える | 重い（CLAUDE.md・フック・MCP を読む） | **フックが毎回走る** |
+| `bare: true` | **サブスクリプションを使わない**（API キー必須） | 軽い | なし |
+
+言語化が走るのは1日に数回（日誌1回、レポート2回）なので、既定のままでも
+利用枠への影響はごくわずかです。
+
+launchd から使う場合は、`bitbank` と同じく `claude` も PATH に入っている必要があります
+（npm でグローバルに入れていれば同じディレクトリです）。
 
 出力の例:
 
