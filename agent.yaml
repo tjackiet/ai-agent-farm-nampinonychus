@@ -52,7 +52,13 @@ runtime:
   timezone: Asia/Tokyo
   max_runtime_sec: 120 # 1回の判断にかける上限
   on_error: hold # 例外・不明時は必ず HOLD（発注しない）
-  dry_run: false # 設計段階では発注コマンドを組み立てるのみ
+  # paper tick が遡れる上限。これを超えて停止すると、その間に指値へ届いた
+  # 値動きが評価されない。復帰時は未約定の指値をすべて取り消す
+  # （risk-policy.md「運用を中断したあとの復帰」）。
+  stale_tick_hours: 24
+  # false でペーパー口座へ実際に発注する。true なら注文を組み立てるだけ。
+  # どちらでも実資金には影響しない（paper は公開 API しか叩かない）。
+  dry_run: false
 
 market:
   exchange: bitbank

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -94,6 +95,37 @@ class State:
     realized_pnl_jpy: Decimal
     unrealized_pnl_jpy: Decimal
     position_mismatch: bool
+
+
+def last_tick_at(config: Config, root: Path | None = None) -> datetime | None:
+    """ペーパー口座が最後に約定判定をした時刻を読む。
+
+    停止していた時間を測るために使う。ファイルが無い・読めない・形式が違う
+    場合は None を返し、呼び出し側は「判断できない」として扱う。
+    """
+    base = root if root is not None else REPO_ROOT
+    path = Path(config.state_path)
+    if not path.is_absolute():
+        path = base / path
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = raw.get("lastTickAt") if isinstance(raw, dict) else None
+    if not isinstance(value, str):
+        return None
+    try:
+        return timeutil.from_iso(value, config.timezone)
+    except ValueError:
+        return None
+
+
+def stopped_hours(config: Config, now: datetime, root: Path | None = None) -> float | None:
+    """前回の約定判定から何時間空いたか。分からなければ None。"""
+    previous = last_tick_at(config, root)
+    if previous is None:
+        return None
+    return max(0.0, (now - previous).total_seconds() / 3600)
 
 
 def parse_trades(rows: Sequence[dict], pair: str, tz_name: str) -> tuple[Trade, ...]:

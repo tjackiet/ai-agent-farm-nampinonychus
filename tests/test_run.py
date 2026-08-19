@@ -67,13 +67,25 @@ class CycleTest(unittest.TestCase):
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
     def test_dry_runでは発注コマンドを組み立てるだけ(self):
+        # 運用モードに左右されないよう、設定ではなくテスト側で dry_run を決める。
+        config = dataclasses.replace(self.config, dry_run=True)
         fake = FakeCli(default_responses())
-        cycle = self.run_cycle(fake)
+        cycle = self.run_cycle(fake, config)
         self.assertEqual(cycle.action, "BUY")
         self.assertTrue(cycle.dry_run)
         self.assertEqual(len(cycle.orders), 1)
         self.assertFalse(cycle.orders[0]["executed"])
         self.assertIn("--price=14925000", str(cycle.orders[0]["cmd"]))
+        self.assertNotIn("paper create-order", " ".join(fake.calls))
+
+    def test_force_dry_runは設定より安全側に倒せる(self):
+        """--dry-run は agent.yaml が false でも発注を止められる。逆はできない。"""
+        config = dataclasses.replace(self.config, dry_run=False)
+        fake = FakeCli(default_responses())
+        client = cli.Client(config, runner=fake)
+        cycle = run_once(config, client, NOW, force_dry_run=True, repo_root=self.root)
+        self.assertTrue(cycle.dry_run)
+        self.assertFalse(cycle.orders[0]["executed"])
         self.assertNotIn("paper create-order", " ".join(fake.calls))
 
     def test_判断ログをHOLDでも残す(self):

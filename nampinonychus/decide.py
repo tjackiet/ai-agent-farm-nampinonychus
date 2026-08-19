@@ -233,6 +233,25 @@ def _next_buy(
     )
 
 
+def _recover(config: Config, state: State, name: str, stopped_hours: float) -> Decision:
+    """長く止まっていたあとの復帰。板に残った指値をすべて取り消す。
+
+    `paper tick` が遡れるのは直近24時間まで。それを超えて止まると、その間に
+    指値へ届いた値動きは評価されない。実際には約定していたはずの注文が、
+    約定しないまま板に残る。古い指値を信用せず、いったん全部消して
+    次の回に組み直す（risk-policy.md「運用を中断したあとの復帰」）。
+    """
+    cancel = tuple(o.id for o in (*state.pending_buy, *state.pending_sell))
+    reason = (
+        f"{stopped_hours:.1f} 時間停止していた。"
+        f"遡れる上限（{config.stale_tick_hours:.0f} 時間）を超えたため、"
+        "未約定の指値を取り消してこの回は何もしない"
+    )
+    if not cancel:
+        return _hold(name, f"{reason}（取り消す注文はなし）")
+    return Decision(action=HOLD, state=name, reason=reason, cancel=cancel)
+
+
 def decide(
     config: Config,
     guards: Guards,
@@ -240,6 +259,7 @@ def decide(
     spec: PairSpec | None,
     state: State | None,
     now: datetime,
+    stopped_hours: float | None = None,
 ) -> Decision:
     """観測と状態から、この回の行動を決める。"""
     name = state_name(config, state)
@@ -263,6 +283,9 @@ def decide(
             config, spec, state, name,
             f"総資産が {state.account.drawdown_pct:.1f}% で強制手仕舞いの水準",
         )
+
+    if stopped_hours is not None and stopped_hours > config.stale_tick_hours:
+        return _recover(config, state, name, stopped_hours)
 
     age_days = state.position.age_days
     if age_days is not None and age_days > config.time_stop_days:

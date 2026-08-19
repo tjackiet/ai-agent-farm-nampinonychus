@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from nampinonychus.state import (
     build_status,
+    last_tick_at,
+    stopped_hours,
     count_closed_positions,
     current_round,
     derive,
@@ -178,6 +183,43 @@ class DeriveTest(unittest.TestCase):
     def test_総資産は現金と建玉評価額の合計(self):
         state = self.derive()
         self.assertEqual(state.account.equity_jpy, Decimal("921430") + Decimal("0.0054") * Decimal("14700000"))
+
+
+class LastTickTest(unittest.TestCase):
+    """停止していた時間の測定。ペーパー口座に触る前に読む必要がある。"""
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "var").mkdir()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def write_state(self, body: str) -> None:
+        (self.root / self.config.state_path).write_text(body, encoding="utf-8")
+
+    def test_最後の約定判定の時刻を読む(self):
+        self.write_state(json.dumps({"lastTickAt": "2026-08-18T00:00:00.000Z"}))
+        self.assertEqual(
+            last_tick_at(self.config, self.root), helpers.at("2026-08-18T09:00:00+09:00")
+        )
+
+    def test_停止していた時間を測る(self):
+        self.write_state(json.dumps({"lastTickAt": "2026-08-17T00:00:00.000Z"}))
+        self.assertAlmostEqual(stopped_hours(self.config, NOW, self.root), 24.0, places=3)
+
+    def test_ファイルが無ければ分からない(self):
+        self.assertIsNone(stopped_hours(self.config, NOW, self.root))
+
+    def test_壊れていれば分からない(self):
+        self.write_state("{壊れている")
+        self.assertIsNone(stopped_hours(self.config, NOW, self.root))
+
+    def test_値が無ければ分からない(self):
+        self.write_state(json.dumps({"version": 3}))
+        self.assertIsNone(stopped_hours(self.config, NOW, self.root))
 
 
 class StatusTest(unittest.TestCase):

@@ -92,10 +92,13 @@ def run_once(
     trades: tuple[state_module.Trade, ...] = ()
     error: str | None = None
 
+    stopped_hours: float | None = None
     try:
         guards = observe.check_guards(client, cfg)
         market = observe.observe_market(client, cfg, now)
         spec = observe.observe_pair_spec(client, cfg)
+        # ペーパー口座に触る前に測る。tick も lazy tick も lastTickAt を進めるため。
+        stopped_hours = state_module.stopped_hours(cfg, now, repo_root)
         derived, trades = _observe_account(client, cfg, now, market.last)
     except cli.CliError as exc:
         error = f"{exc}（{exc.cmd}）"
@@ -117,7 +120,9 @@ def run_once(
                 reason=f"観測に {int(elapsed)} 秒かかり、実行時間の上限を超えた",
             )
         else:
-            decision = decide_module.decide(cfg, guards, market, spec, derived, now)
+            decision = decide_module.decide(
+                cfg, guards, market, spec, derived, now, stopped_hours
+            )
 
     order_records: list[dict[str, Any]] = []
     if error is None and (decision.cancel or decision.place):

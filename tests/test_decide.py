@@ -326,6 +326,60 @@ class RiskTest(unittest.TestCase):
         self.assertIn("上限を超えた", decision.reason)
 
 
+class RecoveryTest(unittest.TestCase):
+    """24時間を超えて止まったあとの復帰（risk-policy.md）。"""
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def decide(self, current, stopped_hours):
+        return decide(
+            self.config, guards(), market(), pair_spec(), current, NOW, stopped_hours
+        )
+
+    def test_長く止まっていたら指値を全部取り消す(self):
+        current = state(
+            position="0.0054",
+            avg_cost="14550000",
+            step=1,
+            cash="921430",
+            pending_buy=[open_order("b1", "buy", "14477250", "0.0069")],
+            pending_sell=[open_order("s1", "sell", "14593650", "0.0027")],
+        )
+        decision = self.decide(current, 30.0)
+        self.assertEqual(decision.action, HOLD)
+        self.assertEqual(set(decision.cancel), {"b1", "s1"})
+        self.assertEqual(decision.place, ())
+        self.assertIn("30.0 時間停止", decision.reason)
+
+    def test_取り消す注文がなくても何もしない(self):
+        decision = self.decide(state(), 30.0)
+        self.assertEqual(decision.action, HOLD)
+        self.assertEqual(decision.cancel, ())
+        self.assertIn("取り消す注文はなし", decision.reason)
+
+    def test_上限内の停止では通常どおり判断する(self):
+        decision = self.decide(state(), 5.0)
+        self.assertEqual(decision.action, BUY)
+
+    def test_停止時間が分からなければ通常どおり判断する(self):
+        decision = self.decide(state(), None)
+        self.assertEqual(decision.action, BUY)
+
+    def test_強制手仕舞いのほうが優先される(self):
+        """撤退の水準に達していれば、復帰より手仕舞いが先。"""
+        current = state(
+            position="0.0055",
+            avg_cost="14550000",
+            step=1,
+            cash="660000",
+            equity="740000",
+        )
+        decision = self.decide(current, 30.0)
+        self.assertEqual(decision.state, "HALTED")
+        self.assertEqual(decision.action, SELL)
+
+
 class StateNameTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
