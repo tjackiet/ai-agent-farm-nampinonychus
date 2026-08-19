@@ -15,7 +15,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import cli, config as config_module, decide as decide_module, journal, observe, state as state_module
+from . import (
+    cli,
+    config as config_module,
+    decide as decide_module,
+    journal,
+    observe,
+    state as state_module,
+    summary as summary_module,
+)
 from . import timeutil
 from .orders import Executor, execute
 
@@ -185,6 +193,13 @@ def run_once(
         # 書き出し先は Git 管理外。リポジトリの status.yaml は見本として触らない。
         state_module.write_status(document, root / cfg.status_output)
         status_written = True
+
+    # 記録の集約。判断そのものには影響しないため、失敗しても HOLD にはしない。
+    if error is None and derived is not None:
+        try:
+            summary_module.ensure(cfg, now, trades, repo_root)
+        except OSError as exc:
+            client.warnings.append(f"日次サマリを書けませんでした: {exc}")
 
     return Cycle(
         run_id=run_id,

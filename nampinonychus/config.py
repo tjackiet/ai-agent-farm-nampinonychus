@@ -127,6 +127,11 @@ class Config:
     status_output: str
     decisions_path: str
     decisions_read_last_n: int
+    daily_path: str
+    daily_write_at: str
+    daily_read_last_n: int
+    lessons_path: str
+    lessons_max_entries: int
 
     raw: dict
 
@@ -222,5 +227,10 @@ def load(path: Path | str | None = None) -> Config:
         status_output=_str(raw, "agent.status_output"),
         decisions_path=_str(raw, "memory.decisions.path"),
         decisions_read_last_n=_int(raw, "memory.decisions.read_last_n"),
+        daily_path=_str(raw, "memory.daily.path"),
+        daily_write_at=_str(raw, "memory.daily.write_at"),
+        daily_read_last_n=_int(raw, "memory.daily.read_last_n"),
+        lessons_path=_str(raw, "memory.lessons.path"),
+        lessons_max_entries=_int(raw, "memory.lessons.max_entries"),
         raw=raw,
     )

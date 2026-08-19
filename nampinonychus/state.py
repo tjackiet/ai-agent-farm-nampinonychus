@@ -177,6 +177,90 @@ def current_round(trades: Sequence[Trade]) -> tuple[Trade, ...]:
     return tuple(round_trades)
 
 
+@dataclass(frozen=True)
+class Round:
+    """建玉1回ぶん。買い始めてから、全部売り切るまで。"""
+
+    opened_at: datetime
+    closed_at: datetime | None
+    steps: int
+    amount: Decimal
+    cost_jpy: Decimal
+    proceeds_jpy: Decimal
+    avg_cost_jpy: Decimal
+    realized_pnl_jpy: Decimal
+
+    @property
+    def is_closed(self) -> bool:
+        return self.closed_at is not None
+
+    @property
+    def return_pct(self) -> Decimal:
+        if self.cost_jpy <= 0:
+            return Decimal(0)
+        return self.realized_pnl_jpy / self.cost_jpy * Decimal(100)
+
+
+def rounds(trades: Sequence[Trade]) -> tuple[Round, ...]:
+    """約定履歴を建玉のラウンドごとに区切る。
+
+    平均取得単価と実現損益の求めかたは `bitbank paper pnl` に合わせる。
+    買いは手数料を取得単価へ上乗せし、売りは手取りから手数料を引く。
+    """
+    result: list[Round] = []
+    current: list[Trade] = []
+    position = Decimal(0)
+
+    for trade in trades:
+        if position <= DUST and trade.side == "buy":
+            current = []
+        current.append(trade)
+        position += trade.amount if trade.side == "buy" else -trade.amount
+        if position <= DUST and current:
+            result.append(_build_round(current, closed=True))
+            current = []
+            position = Decimal(0)
+
+    if current:
+        result.append(_build_round(current, closed=False))
+    return tuple(result)
+
+
+def _build_round(trades: Sequence[Trade], closed: bool) -> Round:
+    position = Decimal(0)
+    avg_cost = Decimal(0)
+    cost = Decimal(0)
+    proceeds = Decimal(0)
+    realized = Decimal(0)
+    steps = 0
+
+    for trade in trades:
+        if trade.side == "buy":
+            steps += 1
+            per_unit_fee = trade.fee_quote / trade.amount if trade.amount else Decimal(0)
+            new_position = position + trade.amount
+            avg_cost = (
+                avg_cost * position + (trade.fill_price + per_unit_fee) * trade.amount
+            ) / new_position
+            position = new_position
+            cost += trade.fill_price * trade.amount + trade.fee_quote
+        else:
+            realized += (trade.fill_price - avg_cost) * trade.amount - trade.fee_quote
+            proceeds += trade.fill_price * trade.amount - trade.fee_quote
+            position -= trade.amount
+
+    return Round(
+        opened_at=trades[0].filled_at,
+        closed_at=trades[-1].filled_at if closed else None,
+        steps=steps,
+        amount=sum((t.amount for t in trades if t.side == "buy"), Decimal(0)),
+        cost_jpy=cost,
+        proceeds_jpy=proceeds,
+        avg_cost_jpy=avg_cost,
+        realized_pnl_jpy=realized,
+    )
+
+
 def derive_ladder(
     trades: Sequence[Trade], config: Config, now: datetime
 ) -> Ladder:

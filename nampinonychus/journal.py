@@ -35,6 +35,32 @@ def append(
     return target
 
 
+def recorded_dates(config: Config, root: Path | None = None) -> list[str]:
+    """判断ログが残っている日付を古い順に返す。"""
+    base = root if root is not None else REPO_ROOT
+    directory = (base / config.decisions_path.format(date="x")).parent
+    if not directory.is_dir():
+        return []
+    return sorted(p.stem for p in directory.glob("*.jsonl"))
+
+
+def read_day(config: Config, date: str, root: Path | None = None) -> list[dict]:
+    """その日の判断ログを読む。壊れている行は飛ばす。"""
+    base = root if root is not None else REPO_ROOT
+    path = base / config.decisions_path.format(date=date)
+    if not path.is_file():
+        return []
+    records: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
 def build_record(
     *,
     run_id: str,
