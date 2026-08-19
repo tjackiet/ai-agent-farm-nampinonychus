@@ -43,6 +43,9 @@ agent:
   status_file: status.yaml
   # 実行のたびに書き出すスナップショット。運用の産物であり Git 管理外。
   status_output: var/status.yaml
+  # 実績（成績連動エモートの判定に使う）。同じく運用の産物で Git 管理外。
+  # records/performance.sample.yaml はサンプル専用で、こちらとは別物。
+  performance_output: var/performance.yaml
   # 表示用の静的プロフィール（性格・傾向・特性・技）。参照のみ。
   # 数値パラメータの正は本ファイルであり、visual-profile.yaml は表示のための要約です。
   visual_profile_file: visual-profile.yaml

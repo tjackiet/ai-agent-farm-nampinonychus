@@ -307,6 +307,9 @@ Homebrew や OS 付属の Python では、`pip install` が
 - 判断ログは `var/memory/decisions/{date}.jsonl` へ追記されます。HOLD でも必ず残します。
 - スナップショットは `var/status.yaml` へ、成功した回だけ書き出します。
   途中で失敗した回は更新しません。
+- 実績は `var/performance.yaml` へ書き出します（成績連動エモートの判定に使います）。
+  日次サマリは `var/memory/daily/`、建玉が完結したときの記録は
+  `var/memory/lessons.md` に残ります。
 - **運用の産物はすべて `var/` 配下（Git 管理外）です。** 実行しても作業ツリーは汚れません。
   リポジトリ直下の `status.yaml` はスキーマの見本として固定です。
 - `--dry-run` は **agent.yaml より安全側にのみ**倒せます。実際に発注させるときは

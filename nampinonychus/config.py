@@ -81,6 +81,7 @@ class Config:
     """agent.yaml の内容。すべて読み取り専用。"""
 
     version: str
+    agent_id: str
     phase: str
     pair: str
     dry_run: bool
@@ -125,6 +126,7 @@ class Config:
     max_data_age_sec: int
 
     status_output: str
+    performance_output: str
     decisions_path: str
     decisions_read_last_n: int
     daily_path: str
@@ -192,6 +194,7 @@ def load(path: Path | str | None = None) -> Config:
 
     return Config(
         version=_str(raw, "version"),
+        agent_id=_str(raw, "agent.id"),
         phase=_str(raw, "agent.phase"),
         pair=str(pairs[0]),
         dry_run=_bool(raw, "runtime.dry_run"),
@@ -225,6 +228,7 @@ def load(path: Path | str | None = None) -> Config:
         skip_on_exchange_maintenance=_bool(raw, "risk.guards.skip_on_exchange_maintenance"),
         max_data_age_sec=_int(raw, "risk.guards.max_data_age_sec"),
         status_output=_str(raw, "agent.status_output"),
+        performance_output=_str(raw, "agent.performance_output"),
         decisions_path=_str(raw, "memory.decisions.path"),
         decisions_read_last_n=_int(raw, "memory.decisions.read_last_n"),
         daily_path=_str(raw, "memory.daily.path"),

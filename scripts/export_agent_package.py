@@ -134,7 +134,7 @@ def main() -> None:
         "--performance",
         type=Path,
         default=None,
-        help="performance YAML のパス（既定: records/performance.yaml、--sample 時は records/performance.sample.yaml）",
+        help="performance YAML のパス（既定: var/performance.yaml、--sample 時は records/performance.sample.yaml）",
     )
     parser.add_argument(
         "--out",
@@ -161,7 +161,7 @@ def main() -> None:
     elif args.sample:
         performance_path = REPO_ROOT / "records/performance.sample.yaml"
     else:
-        performance_path = REPO_ROOT / "records/performance.yaml"
+        performance_path = REPO_ROOT / "var/performance.yaml"
         if not performance_path.is_file():
             sys.exit(
                 "エラー: records/performance.yaml がありません"

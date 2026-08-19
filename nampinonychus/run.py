@@ -21,6 +21,7 @@ from . import (
     decide as decide_module,
     journal,
     observe,
+    performance as performance_module,
     state as state_module,
     summary as summary_module,
 )
@@ -198,8 +199,9 @@ def run_once(
     if error is None and derived is not None:
         try:
             summary_module.ensure(cfg, now, trades, repo_root)
+            performance_module.refresh(cfg, now, trades, repo_root)
         except OSError as exc:
-            client.warnings.append(f"日次サマリを書けませんでした: {exc}")
+            client.warnings.append(f"記録を書けませんでした: {exc}")
 
     return Cycle(
         run_id=run_id,

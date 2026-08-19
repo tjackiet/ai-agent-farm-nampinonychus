@@ -13,7 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Sequence
 
-from . import journal, timeutil
+from . import journal, performance, timeutil
 from .config import Config, REPO_ROOT
 from .state import Round, Trade, rounds
 
@@ -103,14 +103,45 @@ def build_daily(
         total = sum((r.realized_pnl_jpy for r in closed), Decimal(0))
         lines.append(f"- 決済: {len(closed)}回 / 実現損益 {_jpy(total)} JPY")
 
-    holds = [r.get("reason") for r in records if r.get("action") == "HOLD"]
+    holds = [r.get("reason") for r in records if r.get("action") == "HOLD" and r.get("reason")]
     if holds:
         top = max(set(holds), key=holds.count)
         lines.append(f"- HOLD の主な理由: {top}（{holds.count(top)}回）")
 
+    lines.extend(_evaluation(config, records, trades))
     lines.append(f"- 所感: {UNWRITTEN}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _evaluation(config: Config, records: Sequence[dict], trades: Sequence[Trade]) -> list[str]:
+    """総資産と、同じ資金を持ち続けた場合との比較。
+
+    「勝ったかどうか」は損益の絶対額では決まらない。買って持っていただけの場合と
+    比べて初めて、この戦略に意味があったかが分かる。
+    """
+    points = performance.equity_series(config, records, trades, config.timezone)
+    if not points:
+        return []
+
+    initial = Decimal(str(config.initial_jpy))
+    equity = points[-1].equity_jpy
+    strategy_pct = (equity - initial) / initial * Decimal(100)
+    lines = [
+        f"- 総資産: {_jpy(equity)} JPY ({float(strategy_pct):+.2f}%)",
+        f"- 最大ドローダウン: {float(performance.max_drawdown_pct(points)):.2f}%（過去最高資産から）",
+    ]
+
+    hold = performance.buy_and_hold_equity(config, points)
+    if hold is not None:
+        hold_pct = (hold - initial) / initial * Decimal(100)
+        diff = strategy_pct - hold_pct
+        lines.append(
+            f"- Buy&Hold 比較: 戦略 {float(strategy_pct):+.2f}% / "
+            f"買って持つだけ {float(hold_pct):+.2f}% → 差 {float(diff):+.2f}%"
+            f"（起点 {points[0].at.strftime('%m-%d %H:%M')} の観測価格 {_jpy(points[0].price)}）"
+        )
+    return lines
 
 
 def build_lesson(round_: Round) -> str:
