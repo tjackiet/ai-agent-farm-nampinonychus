@@ -69,6 +69,79 @@ class FillTest(unittest.TestCase):
         self.assertIn("- 所感: 前置き 改行あり", text)
 
 
+LESSONS = """# 学び — ナンピノニクス
+
+建玉が完結したときにだけ書く。
+
+## 2026-08-19 〜 2026-08-19 / btc_jpy / +358 JPY (+0.45%)
+
+- 使った段: 1
+- 学び: {u}
+## 2026-08-20 〜 2026-08-20 / btc_jpy / +360 JPY (+0.45%)
+
+- 使った段: 1
+- 学び: {u}
+## 2026-08-20 〜 2026-08-20 / btc_jpy / +356 JPY (+0.45%)
+
+- 使った段: 1
+- 学び: {u}
+""".format(u=summary.UNWRITTEN)
+
+
+class 建玉ごとに書かせるTest(unittest.TestCase):
+    """lessons は建玉1回ぶんずつ渡す。
+
+    全文をまとめて渡すと、返ってきた1文がすべての空欄へ複製され、
+    どの建玉の話かも決められなくなる。
+    """
+
+    def setUp(self) -> None:
+        self.seen: list[str] = []
+
+        def writer(system, user):
+            self.seen.append(user)
+            return f"{len(self.seen)} 件目の学び。"
+
+        self.writer = writer
+
+    def test_空欄の数だけ呼ぶ(self):
+        text, changed = narrate.fill(LESSONS, self.writer, "p")
+        self.assertTrue(changed)
+        self.assertEqual(len(self.seen), 3)
+
+    def test_それぞれ別の文が入る(self):
+        text, _ = narrate.fill(LESSONS, self.writer, "p")
+        self.assertIn("- 学び: 1 件目の学び。", text)
+        self.assertIn("- 学び: 2 件目の学び。", text)
+        self.assertIn("- 学び: 3 件目の学び。", text)
+        self.assertNotIn(summary.UNWRITTEN, text)
+
+    def test_渡すのはその建玉ぶんだけ(self):
+        narrate.fill(LESSONS, self.writer, "p")
+        self.assertIn("+358 JPY", self.seen[0])
+        self.assertNotIn("+360 JPY", self.seen[0])
+        self.assertNotIn("+356 JPY", self.seen[0])
+
+    def test_記入済みの建玉は呼ばない(self):
+        already = LESSONS.replace(summary.UNWRITTEN, "書いてある", 1)
+        narrate.fill(already, self.writer, "p")
+        self.assertEqual(len(self.seen), 2)
+        self.assertNotIn("+358 JPY", " ".join(self.seen))
+
+    def test_見出しが無ければ全体を1件として渡す(self):
+        """日誌は `## ` を持たないので、従来どおり1回で書く。"""
+        text, changed = narrate.fill(BODY, self.writer, "p")
+        self.assertTrue(changed)
+        self.assertEqual(len(self.seen), 1)
+        self.assertEqual(self.seen[0], BODY)
+
+    def test_見出しの前書きを落とさない(self):
+        text, _ = narrate.fill(LESSONS, self.writer, "p")
+        self.assertTrue(text.startswith("# 学び — ナンピノニクス"))
+        self.assertIn("建玉が完結したときにだけ書く。", text)
+
+
+
 class FillUnwrittenTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
