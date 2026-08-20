@@ -88,6 +88,18 @@ def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetim
     return derived, trades, filled if isinstance(filled, list) else []
 
 
+def _late_warning(client: cli.Client, message: str) -> None:
+    """判断ログを書いたあとに気づいた不具合を残す。
+
+    記録は判断が済んだ時点で確定させるので、この段階の警告はその回の
+    JSONL には載らない。標準エラーへ出して `var/run.err.log` に残す
+    （`Cycle.warnings` にも入るため `var/run.log` にも出る）。
+    黙って消えると、所感が空欄のままでも原因が追えなくなる。
+    """
+    client.warnings.append(message)
+    print(message, file=sys.stderr)
+
+
 def _narrate(
     cfg: config_module.Config,
     repo_root: Path | None,
@@ -97,11 +109,13 @@ def _narrate(
     """日誌の空欄を埋める。失敗しても運用は続ける（空欄のまま残るだけ）。"""
     if not cfg.narrate_enabled:
         return
-    writer = narrator or narrate_module.writer_for(cfg)
     try:
+        writer = narrator or narrate_module.writer_for(cfg)
         narrate_module.fill_unwritten(cfg, writer, repo_root)
+    except narrate_module.NarrateError as exc:
+        _late_warning(client, f"所感を書けませんでした: {exc}")
     except Exception as exc:  # noqa: BLE001 - 言語化の失敗で発注を止めない
-        client.warnings.append(f"所感を書けませんでした: {type(exc).__name__}")
+        _late_warning(client, f"所感を書けませんでした: {type(exc).__name__}")
 
 
 def run_once(
@@ -239,7 +253,7 @@ def run_once(
                 / cfg.performance_output,
             )
         except OSError as exc:
-            client.warnings.append(f"記録を書けませんでした: {exc}")
+            _late_warning(client, f"記録を書けませんでした: {exc}")
 
     # 通知。送れなくても判断には影響させない。
     messages = notify_module.build_messages(
@@ -261,11 +275,14 @@ def run_once(
                 remark = narrate_module.comment(cfg, writer, report, repo_root)
                 if remark:
                     report = f"{report}\n> {remark}"
+            except narrate_module.NarrateError as exc:
+                _late_warning(client, f"一言を書けませんでした: {exc}")
             except Exception as exc:  # noqa: BLE001 - 一言が書けなくても送る
-                client.warnings.append(f"一言を書けませんでした: {type(exc).__name__}")
+                _late_warning(client, f"一言を書けませんでした: {type(exc).__name__}")
         messages.append(report)
     failure = notify_module.send(cfg, messages, poster=notifier)
     if failure:
+        # 未設定は毎回起きる正常な状態なので、標準エラーには出さない。
         client.warnings.append(failure)
 
     return Cycle(

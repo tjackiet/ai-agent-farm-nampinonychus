@@ -160,6 +160,57 @@ class ClaudeCodeArgsTest(unittest.TestCase):
         self.assertIn(self.config.narrate_effort, argv)
 
 
+class 失敗の伝えかたTest(unittest.TestCase):
+    """所感が空欄のままなら、原因が分かる形で残っていること。
+
+    launchd は自分の PATH しか見ない。claude が見つからないだけで所感は
+    ずっと空欄になるが、例外の型名だけでは PATH が原因だと分からない。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def _write(self, fake):
+        import subprocess
+
+        real = subprocess.run
+        subprocess.run = fake
+        try:
+            narrate.claude_code_writer(self.config)("system", "user")
+        finally:
+            subprocess.run = real
+
+    def test_コマンドが無ければ名前とPATHを言う(self):
+        def missing(argv, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(missing)
+        self.assertIn(self.config.narrate_command, str(caught.exception))
+        self.assertIn("PATH", str(caught.exception))
+
+    def test_時間切れならそう言う(self):
+        import subprocess
+
+        def slow(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, self.config.narrate_timeout_sec)
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(slow)
+        self.assertIn(str(self.config.narrate_timeout_sec), str(caught.exception))
+
+    def test_異常終了なら終了コードを言う(self):
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 3, "", "何か")
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("3", str(caught.exception))
+
+
+
 class CommentTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
