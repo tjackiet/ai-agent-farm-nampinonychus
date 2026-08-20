@@ -160,14 +160,47 @@ def _clean(text: str) -> str:
     return re.sub(r"^[-*・\s]+", "", line)
 
 
+def split_entries(text: str) -> list[str]:
+    """`## ` 見出しごとに区切る。見出しより前の部分は先頭の要素に残す。
+
+    lessons は建玉1回ぶんを `## ` 見出しで並べる。日誌には `## ` が無いので、
+    その場合は分割されず全体が1要素になる。
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("## ") and current:
+            parts.append("".join(current))
+            current = []
+        current.append(line)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
 def fill(text: str, writer: Writer, prompt: str) -> tuple[str, bool]:
-    """本文中の「（未記入）」を埋める。書けなければそのまま返す。"""
+    """本文中の「（未記入）」を埋める。書けなければそのまま返す。
+
+    見出しごとに1件ずつ書かせる。lessons のように複数の建玉が1つのファイルへ
+    並ぶ場合、全文をまとめて渡すと「どの建玉の話か」を決められないうえ、
+    返ってきた1文がすべての空欄へ複製されてしまう。
+    """
     if summary.UNWRITTEN not in text:
         return text, False
-    written = _clean(writer(prompt, text))
-    if not written:
-        return text, False
-    return text.replace(summary.UNWRITTEN, written), True
+    filled: list[str] = []
+    changed = False
+    for entry in split_entries(text):
+        if summary.UNWRITTEN not in entry:
+            filled.append(entry)
+            continue
+        written = _clean(writer(prompt, entry))
+        if not written:
+            filled.append(entry)
+            continue
+        # 1件だけ置き換える。同じ見出しに空欄が複数あっても混ざらないようにする。
+        filled.append(entry.replace(summary.UNWRITTEN, written, 1))
+        changed = True
+    return "".join(filled), changed
 
 
 def fill_unwritten(
