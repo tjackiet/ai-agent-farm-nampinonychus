@@ -199,6 +199,14 @@ NODE_BIN="$(python3 -c "import os,shutil;print(os.path.dirname(os.path.realpath(
 ls "$NODE_BIN/bitbank" "$NODE_BIN/node"
 ```
 
+`narrate` を使うなら `claude` のディレクトリも要ります。**`bitbank` と同じとは
+限りません。** 公式インストーラで入れた場合は `~/.local/bin` です。
+
+```bash
+CLAUDE_BIN="$(dirname "$(command -v claude)")"
+echo "$CLAUDE_BIN"
+```
+
 **`which bitbank` の結果をそのまま使ってはいけません。** fnm / nvm / volta などの
 バージョン管理ツールは、シェルごとに使い捨てのディレクトリ
 （例：`.../fnm_multishells/8655_1787064548028/bin`）を PATH に挿します。
@@ -215,7 +223,7 @@ env -i PATH="$NODE_BIN:/usr/bin:/bin" bitbank status --format=json --machine | h
 
 ```bash
 sed -e "s|__REPO__|$PWD|g" \
-    -e "s|__PATH__|$NODE_BIN:/usr/bin:/bin:/usr/sbin:/sbin|g" \
+    -e "s|__PATH__|$NODE_BIN:$CLAUDE_BIN:/usr/bin:/bin:/usr/sbin:/sbin|g" \
     scripts/launchd/local.nampinonychus.plist \
     > ~/Library/LaunchAgents/local.nampinonychus.plist
 
@@ -232,6 +240,9 @@ launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
 
 - **`PATH` を明示するのは必須です。** launchd の既定の `PATH` には npm の
   グローバル配置先が含まれず、`bitbank` が見つかりません。
+- **`claude` を入れ忘れても運用は止まりません。** 売買は続き、所感と学びだけが
+  空欄のまま残ります。気づくには `grep 書けませんでした var/run.err.log` を見ます
+  （判断ログには載りません。記録を先に確定させるためです）。
 - **Node のバージョンを上げたら、登録し直してください。** `PATH` に
   バージョン番号が含まれるためです。
 - **スリープ中は動きません。** ノートの蓋を閉じれば止まり、復帰後に一度だけ実行されます。
@@ -277,8 +288,10 @@ launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
 言語化が走るのは1日に数回（日誌1回、レポート2回）なので、既定のままでも
 利用枠への影響はごくわずかです。
 
-launchd から使う場合は、`bitbank` と同じく `claude` も PATH に入っている必要があります
-（npm でグローバルに入れていれば同じディレクトリです）。
+launchd から使う場合は、`bitbank` と同じく `claude` も PATH に入っている必要があります。
+**両者は別のディレクトリにあることが多い**ので、plist には両方を並べてください
+（「定期実行」を参照）。見つからないときは `var/run.err.log` に
+`所感を書けませんでした: claude が見つかりません。PATH を確認する` が残ります。
 
 出力の例:
 

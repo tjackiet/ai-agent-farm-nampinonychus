@@ -23,6 +23,14 @@ from .config import Config, REPO_ROOT
 # system, user を受け取って本文を返す。テストでは差し替える。
 Writer = Callable[[str, str], str]
 
+class NarrateError(RuntimeError):
+    """言語化に失敗した。
+
+    メッセージは記録に残してよい内容だけにする（`CLAUDE.md`「API キー・
+    シークレット・プロファイル名は、ログにも記憶にも残さない」）。
+    """
+
+
 STYLE_RULES = """守ること:
 
 - 渡された本文に書かれている数値だけを使う。新しい数値を作らない
@@ -90,16 +98,27 @@ def claude_code_writer(config: Config) -> Writer:
         ]
         if config.narrate_bare:
             argv.insert(1, "--bare")
-        proc = subprocess.run(  # noqa: S603
-            argv,
-            input=user,
-            capture_output=True,
-            text=True,
-            timeout=config.narrate_timeout_sec,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(  # noqa: S603
+                argv,
+                input=user,
+                capture_output=True,
+                text=True,
+                timeout=config.narrate_timeout_sec,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise NarrateError(
+                f"{config.narrate_command} が見つかりません。PATH を確認する"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise NarrateError(
+                f"{config.narrate_command} が {config.narrate_timeout_sec} 秒で返らなかった"
+            ) from exc
         if proc.returncode != 0:
-            raise RuntimeError(f"{config.narrate_command} が異常終了しました")
+            raise NarrateError(
+                f"{config.narrate_command} が異常終了しました（終了コード {proc.returncode}）"
+            )
         return (proc.stdout or "").strip()
 
     return write
