@@ -88,6 +88,22 @@ LESSONS = """# 学び — ナンピノニクス
 """.format(u=summary.UNWRITTEN)
 
 
+class 壊れた返答をはじくTest(unittest.TestCase):
+    def test_返答が空欄の印を含むなら採用しない(self):
+        """返答に「（未記入）」が混じると、次の実行がその中身をさらに置換して壊れる。
+
+        実際に `- 学び: …「最後の項目（未記入）への反映ができていません」…` が
+        書き込まれ、次の回でその内側が置換されて入れ子になった。
+        """
+        text, changed = narrate.fill(
+            BODY, fixed(f"最後の項目{summary.UNWRITTEN}への反映ができていません"), "p"
+        )
+        self.assertFalse(changed)
+        self.assertIn(f"- 所感: {summary.UNWRITTEN}", text)
+        self.assertEqual(text, BODY)
+
+
+
 class 建玉ごとに書かせるTest(unittest.TestCase):
     """lessons は建玉1回ぶんずつ渡す。
 
@@ -226,6 +242,39 @@ class ClaudeCodeArgsTest(unittest.TestCase):
     def test_bareを選べる(self):
         config = dataclasses.replace(self.config, narrate_bare=True)
         self.assertIn("--bare", self.run_writer(config))
+
+    def test_リポジトリの外で走らせる(self):
+        """`--bare` なしの起動は cwd の CLAUDE.md とフックを読む。
+
+        リポジトリの中で走らせると「エージェントを開発する作業指示」を
+        受け取ってしまい、記録の一文ではなくファイル編集の許可を求める
+        返答になる（実際にそうなった）。
+        """
+        import subprocess
+        from pathlib import Path
+
+        real = subprocess.run
+        seen: dict = {}
+
+        def fake(argv, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(argv, 0, "書いた", "")
+
+        subprocess.run = fake
+        try:
+            narrate.claude_code_writer(self.config)("system", "user")
+        finally:
+            subprocess.run = real
+
+        cwd = seen.get("cwd")
+        self.assertIsNotNone(cwd)
+        self.assertNotEqual(Path(cwd).resolve(), Path.cwd().resolve())
+        self.assertFalse((Path(cwd) / "CLAUDE.md").exists())
+
+    def test_文だけを返させる(self):
+        prompt = narrate.build_prompt("lessons")
+        self.assertIn("返答した文が、そのまま記録の本文になる", prompt)
+        self.assertIn("ファイルを読み書きしない", prompt)
 
     def test_モデルと効力を渡す(self):
         argv = self.run_writer(self.config)

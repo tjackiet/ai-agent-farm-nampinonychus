@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -38,7 +39,9 @@ STYLE_RULES = """守ること:
 - 損失を言い換えない。含み損は含み損、撤退は撤退と書く
 - 助言や指示をしない。起きたことへの所感だけを書く
 - 前置きをしない。1〜2文で書く
-- 記号や箇条書きを使わない。地の文で書く"""
+- 記号や箇条書きを使わない。地の文で書く
+- **返答した文が、そのまま記録の本文になる。** 確認を求めたり、案を並べたりしない
+- ファイルを読み書きしない。道具を使わず、文だけを返す"""
 
 
 def _personality(root: Path | None = None) -> str:
@@ -84,6 +87,10 @@ def claude_code_writer(config: Config) -> Writer:
     """
 
     def write(system: str, user: str) -> str:
+        # 作業ディレクトリを外へ逃がす。`--bare` を付けない起動は cwd の
+        # CLAUDE.md とフックを読み込むため、リポジトリの中で走らせると
+        # 「エージェントを開発する作業指示」を受け取ってしまい、記録の
+        # 一文ではなくファイル編集の許可を求める返答になる。
         argv = [
             config.narrate_command,
             "-p",
@@ -99,14 +106,16 @@ def claude_code_writer(config: Config) -> Writer:
         if config.narrate_bare:
             argv.insert(1, "--bare")
         try:
-            proc = subprocess.run(  # noqa: S603
-                argv,
-                input=user,
-                capture_output=True,
-                text=True,
-                timeout=config.narrate_timeout_sec,
-                check=False,
-            )
+            with tempfile.TemporaryDirectory(prefix="nampinonychus-narrate-") as work:
+                proc = subprocess.run(  # noqa: S603
+                    argv,
+                    input=user,
+                    capture_output=True,
+                    text=True,
+                    timeout=config.narrate_timeout_sec,
+                    check=False,
+                    cwd=work,
+                )
         except FileNotFoundError as exc:
             raise NarrateError(
                 f"{config.narrate_command} が見つかりません。PATH を確認する"
@@ -194,7 +203,9 @@ def fill(text: str, writer: Writer, prompt: str) -> tuple[str, bool]:
             filled.append(entry)
             continue
         written = _clean(writer(prompt, entry))
-        if not written:
+        # 返答自体が「（未記入）」を含むと、次の実行がその中身をさらに置換して
+        # 入れ子に壊れる。書けなかった扱いにして空欄のまま残す。
+        if not written or summary.UNWRITTEN in written:
             filled.append(entry)
             continue
         # 1件だけ置き換える。同じ見出しに空欄が複数あっても混ざらないようにする。
