@@ -271,6 +271,16 @@ class ClaudeCodeArgsTest(unittest.TestCase):
         self.assertNotEqual(Path(cwd).resolve(), Path.cwd().resolve())
         self.assertFalse((Path(cwd) / "CLAUDE.md").exists())
 
+    def test_敬体を指定する(self):
+        """`personality.md` の例文は敬体だが、そうとは明文化していない。
+
+        建玉ごとに別の呼び出しになったため、指定しないと回ごとに常体と
+        敬体がゆれる（実際にゆれた）。
+        """
+        prompt = narrate.build_prompt("lessons")
+        self.assertIn("敬体で書く", prompt)
+        self.assertIn("一人称は「わたし」", prompt)
+
     def test_文だけを返させる(self):
         prompt = narrate.build_prompt("lessons")
         self.assertIn("返答した文が、そのまま記録の本文になる", prompt)
