@@ -11,6 +11,10 @@
 
   fnm / nvm / volta を使っている場合、which bitbank はシェルごとの
   使い捨てディレクトリを返す。そのまま書くとシェルを閉じた時点で壊れる。
+
+  narrate を使うなら claude のディレクトリも並べること。bitbank と同じとは
+  限らない（公式インストーラなら ~/.local/bin）。入れ忘れると売買は続くが、
+  所感と学びだけが空欄のまま残り、原因は var/run.err.log にしか出ない。
 -->
 <plist version="1.0">
 <dict>

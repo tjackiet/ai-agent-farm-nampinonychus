@@ -67,6 +67,38 @@ class CycleTest(unittest.TestCase):
             return []
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
+    def test_所感を書けなかった回は理由を標準エラーへ出す(self):
+        """判断ログは既に確定しているので、この警告はそこには載らない。
+
+        黙って消えると、所感が空欄のままでも原因が追えなくなる。
+        """
+        import io
+        import contextlib
+
+        from nampinonychus import narrate
+
+        def broken(system, user):
+            raise narrate.NarrateError("claude が見つかりません。PATH を確認する")
+
+        # 埋める対象が無いと書き手は呼ばれない。前日ぶんの空欄を用意する。
+        from nampinonychus import summary
+
+        daily = self.root / "var" / "memory" / "daily" / "2026-08-17.md"
+        daily.parent.mkdir(parents=True, exist_ok=True)
+        daily.write_text(f"# 2026-08-17\n\n- 所感: {summary.UNWRITTEN}\n", encoding="utf-8")
+
+        config = dataclasses.replace(self.config, narrate_enabled=True)
+        client = cli.Client(config, runner=FakeCli(default_responses()))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            cycle = run_once(config, client, NOW, repo_root=self.root, narrator=broken)
+
+        message = "所感を書けませんでした: claude が見つかりません。PATH を確認する"
+        self.assertIn(message, cycle.warnings)
+        self.assertIn(message, stderr.getvalue())
+        # 判断ログ側には載らない。先に書き出しているため。
+        self.assertNotIn(message, self.read_journal()[-1]["warnings"])
+
     def test_dry_runでは発注コマンドを組み立てるだけ(self):
         # 運用モードに左右されないよう、設定ではなくテスト側で dry_run を決める。
         config = dataclasses.replace(self.config, dry_run=True)

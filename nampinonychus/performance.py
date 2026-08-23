@@ -73,6 +73,47 @@ def equity_series(
     return points
 
 
+def settled(points: Sequence[Point], trades: Sequence[Trade]) -> list[Point]:
+    """最後の観測より後の約定を、終端の1点として点列へ足す。
+
+    `equity_series` は観測した時刻の資産しか復元できない。実行が途切れた
+    時間帯に指値が約定していると、点列は約定前で止まる。約定履歴には
+    残っているのに総資産へ反映されず、決済した日が「建玉を抱えたまま」に
+    見えてしまう。
+
+    価格は最後に観測した値をそのまま使う。約定後の価格は観測していないので、
+    新しい価格を作らない（`CLAUDE.md`「観測していない値を書かない」）。
+    """
+    if not points:
+        return []
+    last = points[-1]
+    later = sorted(
+        (t for t in trades if t.filled_at > last.at), key=lambda t: t.filled_at
+    )
+    if not later:
+        return list(points)
+
+    cash = last.cash_jpy
+    position = last.position
+    for trade in later:
+        notional = trade.fill_price * trade.amount
+        if trade.side == "buy":
+            cash -= notional + trade.fee_quote
+            position += trade.amount
+        else:
+            cash += notional - trade.fee_quote
+            position -= trade.amount
+    return [
+        *points,
+        Point(
+            at=later[-1].filled_at,
+            price=last.price,
+            cash_jpy=cash,
+            position=position,
+        ),
+    ]
+
+
 def max_drawdown_pct(points: Sequence[Point]) -> Decimal:
     """過去最高資産からの最大下落率。正の数で返す。"""
     peak = Decimal(0)

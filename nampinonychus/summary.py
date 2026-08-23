@@ -15,7 +15,7 @@ from typing import Sequence
 
 from . import journal, performance, timeutil
 from .config import Config, REPO_ROOT
-from .state import Round, Trade, rounds
+from .state import DUST, Round, Trade, rounds
 
 # 未記入であることを示す印。あとで言語化するときはこの行を置き換える。
 UNWRITTEN = "（未記入）"
@@ -49,21 +49,32 @@ def lessons_path(config: Config, root: Path | None = None) -> Path:
 def build_daily(
     config: Config, date: str, records: Sequence[dict], trades: Sequence[Trade]
 ) -> str:
-    """その日の判断ログと約定から、日次サマリの本文を作る。"""
+    """その日の判断ログと約定から、日次サマリの本文を作る。
+
+    建玉と総資産は約定履歴から組み立てる。判断ログの最終レコードを使うと、
+    実行が途切れた時間帯の約定が抜け落ち、決済した日が建玉を抱えたままに
+    見えてしまう（点列の補正は `performance.settled`）。
+    """
     prices = [r["price"] for r in records if isinstance(r.get("price"), (int, float))]
     actions = [r.get("action") for r in records]
     day_trades = [t for t in trades if timeutil.date_key(t.filled_at) == date]
     last = records[-1] if records else {}
-    position = last.get("position") or {}
-    amount = position.get("amount")
-    avg_cost = position.get("avg_cost")
+    observed_at = _observed_at(config, last)
+
+    points = performance.settled(
+        performance.equity_series(config, records, trades, config.timezone),
+        day_trades,
+    )
+    held, avg_cost = _closing_position(date, trades)
 
     lines = [f"# {date}", ""]
-    lines.append(f"- 状態: {last.get('state', '—')}")
+    seen = f"（最終観測 {observed_at.strftime('%H:%M')}）" if observed_at else ""
+    lines.append(f"- 状態: {last.get('state', '—')}{seen}")
 
     if prices:
         lines.append(
-            f"- 価格: 高値 {_jpy(max(prices))} / 安値 {_jpy(min(prices))} / 終値 {_jpy(prices[-1])}"
+            f"- 価格: 高値 {_jpy(max(prices))} / 安値 {_jpy(min(prices))} / "
+            f"最終観測 {_jpy(prices[-1])}"
             f"（15分ごとの観測値。足の高安ではない）"
         )
     else:
@@ -88,13 +99,17 @@ def build_daily(
     else:
         lines.append("- 約定: なし")
 
-    if amount:
-        lines.append(f"- 建玉: {_btc(amount)} BTC / 平均取得単価 {_jpy(avg_cost)}")
+    if held > DUST:
+        lines.append(f"- 建玉: {_btc(held)} BTC / 平均取得単価 {_jpy(avg_cost)}")
         if prices and avg_cost:
-            unrealized = (Decimal(str(prices[-1])) - Decimal(str(avg_cost))) * Decimal(str(amount))
-            basis = Decimal(str(avg_cost)) * Decimal(str(amount))
+            price = Decimal(str(prices[-1]))
+            unrealized = (price - avg_cost) * held
+            basis = avg_cost * held
             pct = unrealized / basis * Decimal(100) if basis else Decimal(0)
-            lines.append(f"- 含み損益: {_jpy(unrealized)} JPY ({float(pct):+.2f}%)（終値による評価）")
+            lines.append(
+                f"- 含み損益: {_jpy(unrealized)} JPY ({float(pct):+.2f}%)"
+                f"（最終観測価格による評価）"
+            )
     else:
         lines.append("- 建玉: なし")
 
@@ -103,24 +118,56 @@ def build_daily(
         total = sum((r.realized_pnl_jpy for r in closed), Decimal(0))
         lines.append(f"- 決済: {len(closed)}回 / 実現損益 {_jpy(total)} JPY")
 
+    late = [t for t in day_trades if observed_at and t.filled_at > observed_at]
+    if late:
+        lines.append(
+            f"- 注記: 最終観測より後に {len(late)}件の約定があった"
+            f"（約定履歴から建玉と総資産に反映している）"
+        )
+
     holds = [r.get("reason") for r in records if r.get("action") == "HOLD" and r.get("reason")]
     if holds:
         top = max(set(holds), key=holds.count)
         lines.append(f"- HOLD の主な理由: {top}（{holds.count(top)}回）")
 
-    lines.extend(_evaluation(config, records, trades))
+    lines.extend(_evaluation(config, points))
     lines.append(f"- 所感: {UNWRITTEN}")
     lines.append("")
     return "\n".join(lines)
 
 
-def _evaluation(config: Config, records: Sequence[dict], trades: Sequence[Trade]) -> list[str]:
+def _observed_at(config: Config, record: dict) -> datetime | None:
+    """その日に最後に観測した時刻。判断ログの run_id に由来する。"""
+    run_id = record.get("run_id")
+    if not isinstance(run_id, str):
+        return None
+    try:
+        return timeutil.from_iso(run_id, config.timezone)
+    except ValueError:
+        return None
+
+
+def _closing_position(date: str, trades: Sequence[Trade]) -> tuple[Decimal, Decimal | None]:
+    """その日の終わりに残っていた建玉と、その平均取得単価。
+
+    判断ログではなく約定履歴から数える。実行が途切れていても結果は変わらない。
+    """
+    upto = [t for t in trades if timeutil.date_key(t.filled_at) <= date]
+    held = sum(
+        (t.amount if t.side == "buy" else -t.amount for t in upto), Decimal(0)
+    )
+    if held <= DUST:
+        return Decimal(0), None
+    open_round = next((r for r in reversed(rounds(upto)) if not r.is_closed), None)
+    return held, open_round.avg_cost_jpy if open_round else None
+
+
+def _evaluation(config: Config, points: Sequence[performance.Point]) -> list[str]:
     """総資産と、同じ資金を持ち続けた場合との比較。
 
     「勝ったかどうか」は損益の絶対額では決まらない。買って持っていただけの場合と
     比べて初めて、この戦略に意味があったかが分かる。
     """
-    points = performance.equity_series(config, records, trades, config.timezone)
     if not points:
         return []
 

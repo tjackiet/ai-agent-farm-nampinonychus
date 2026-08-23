@@ -69,6 +69,95 @@ class FillTest(unittest.TestCase):
         self.assertIn("- 所感: 前置き 改行あり", text)
 
 
+LESSONS = """# 学び — ナンピノニクス
+
+建玉が完結したときにだけ書く。
+
+## 2026-08-19 〜 2026-08-19 / btc_jpy / +358 JPY (+0.45%)
+
+- 使った段: 1
+- 学び: {u}
+## 2026-08-20 〜 2026-08-20 / btc_jpy / +360 JPY (+0.45%)
+
+- 使った段: 1
+- 学び: {u}
+## 2026-08-20 〜 2026-08-20 / btc_jpy / +356 JPY (+0.45%)
+
+- 使った段: 1
+- 学び: {u}
+""".format(u=summary.UNWRITTEN)
+
+
+class 壊れた返答をはじくTest(unittest.TestCase):
+    def test_返答が空欄の印を含むなら採用しない(self):
+        """返答に「（未記入）」が混じると、次の実行がその中身をさらに置換して壊れる。
+
+        実際に `- 学び: …「最後の項目（未記入）への反映ができていません」…` が
+        書き込まれ、次の回でその内側が置換されて入れ子になった。
+        """
+        text, changed = narrate.fill(
+            BODY, fixed(f"最後の項目{summary.UNWRITTEN}への反映ができていません"), "p"
+        )
+        self.assertFalse(changed)
+        self.assertIn(f"- 所感: {summary.UNWRITTEN}", text)
+        self.assertEqual(text, BODY)
+
+
+
+class 建玉ごとに書かせるTest(unittest.TestCase):
+    """lessons は建玉1回ぶんずつ渡す。
+
+    全文をまとめて渡すと、返ってきた1文がすべての空欄へ複製され、
+    どの建玉の話かも決められなくなる。
+    """
+
+    def setUp(self) -> None:
+        self.seen: list[str] = []
+
+        def writer(system, user):
+            self.seen.append(user)
+            return f"{len(self.seen)} 件目の学び。"
+
+        self.writer = writer
+
+    def test_空欄の数だけ呼ぶ(self):
+        text, changed = narrate.fill(LESSONS, self.writer, "p")
+        self.assertTrue(changed)
+        self.assertEqual(len(self.seen), 3)
+
+    def test_それぞれ別の文が入る(self):
+        text, _ = narrate.fill(LESSONS, self.writer, "p")
+        self.assertIn("- 学び: 1 件目の学び。", text)
+        self.assertIn("- 学び: 2 件目の学び。", text)
+        self.assertIn("- 学び: 3 件目の学び。", text)
+        self.assertNotIn(summary.UNWRITTEN, text)
+
+    def test_渡すのはその建玉ぶんだけ(self):
+        narrate.fill(LESSONS, self.writer, "p")
+        self.assertIn("+358 JPY", self.seen[0])
+        self.assertNotIn("+360 JPY", self.seen[0])
+        self.assertNotIn("+356 JPY", self.seen[0])
+
+    def test_記入済みの建玉は呼ばない(self):
+        already = LESSONS.replace(summary.UNWRITTEN, "書いてある", 1)
+        narrate.fill(already, self.writer, "p")
+        self.assertEqual(len(self.seen), 2)
+        self.assertNotIn("+358 JPY", " ".join(self.seen))
+
+    def test_見出しが無ければ全体を1件として渡す(self):
+        """日誌は `## ` を持たないので、従来どおり1回で書く。"""
+        text, changed = narrate.fill(BODY, self.writer, "p")
+        self.assertTrue(changed)
+        self.assertEqual(len(self.seen), 1)
+        self.assertEqual(self.seen[0], BODY)
+
+    def test_見出しの前書きを落とさない(self):
+        text, _ = narrate.fill(LESSONS, self.writer, "p")
+        self.assertTrue(text.startswith("# 学び — ナンピノニクス"))
+        self.assertIn("建玉が完結したときにだけ書く。", text)
+
+
+
 class FillUnwrittenTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
@@ -154,10 +243,104 @@ class ClaudeCodeArgsTest(unittest.TestCase):
         config = dataclasses.replace(self.config, narrate_bare=True)
         self.assertIn("--bare", self.run_writer(config))
 
+    def test_リポジトリの外で走らせる(self):
+        """`--bare` なしの起動は cwd の CLAUDE.md とフックを読む。
+
+        リポジトリの中で走らせると「エージェントを開発する作業指示」を
+        受け取ってしまい、記録の一文ではなくファイル編集の許可を求める
+        返答になる（実際にそうなった）。
+        """
+        import subprocess
+        from pathlib import Path
+
+        real = subprocess.run
+        seen: dict = {}
+
+        def fake(argv, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(argv, 0, "書いた", "")
+
+        subprocess.run = fake
+        try:
+            narrate.claude_code_writer(self.config)("system", "user")
+        finally:
+            subprocess.run = real
+
+        cwd = seen.get("cwd")
+        self.assertIsNotNone(cwd)
+        self.assertNotEqual(Path(cwd).resolve(), Path.cwd().resolve())
+        self.assertFalse((Path(cwd) / "CLAUDE.md").exists())
+
+    def test_敬体を指定する(self):
+        """`personality.md` の例文は敬体だが、そうとは明文化していない。
+
+        建玉ごとに別の呼び出しになったため、指定しないと回ごとに常体と
+        敬体がゆれる（実際にゆれた）。
+        """
+        prompt = narrate.build_prompt("lessons")
+        self.assertIn("敬体で書く", prompt)
+        self.assertIn("一人称は「わたし」", prompt)
+
+    def test_文だけを返させる(self):
+        prompt = narrate.build_prompt("lessons")
+        self.assertIn("返答した文が、そのまま記録の本文になる", prompt)
+        self.assertIn("ファイルを読み書きしない", prompt)
+
     def test_モデルと効力を渡す(self):
         argv = self.run_writer(self.config)
         self.assertIn(self.config.narrate_model, argv)
         self.assertIn(self.config.narrate_effort, argv)
+
+
+class 失敗の伝えかたTest(unittest.TestCase):
+    """所感が空欄のままなら、原因が分かる形で残っていること。
+
+    launchd は自分の PATH しか見ない。claude が見つからないだけで所感は
+    ずっと空欄になるが、例外の型名だけでは PATH が原因だと分からない。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def _write(self, fake):
+        import subprocess
+
+        real = subprocess.run
+        subprocess.run = fake
+        try:
+            narrate.claude_code_writer(self.config)("system", "user")
+        finally:
+            subprocess.run = real
+
+    def test_コマンドが無ければ名前とPATHを言う(self):
+        def missing(argv, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(missing)
+        self.assertIn(self.config.narrate_command, str(caught.exception))
+        self.assertIn("PATH", str(caught.exception))
+
+    def test_時間切れならそう言う(self):
+        import subprocess
+
+        def slow(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, self.config.narrate_timeout_sec)
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(slow)
+        self.assertIn(str(self.config.narrate_timeout_sec), str(caught.exception))
+
+    def test_異常終了なら終了コードを言う(self):
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 3, "", "何か")
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("3", str(caught.exception))
+
 
 
 class CommentTest(unittest.TestCase):

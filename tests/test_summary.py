@@ -29,9 +29,9 @@ def trade(side, amount, price, filled_at, fee="0"):
     }
 
 
-def record(action, price, reason="", state="IDLE", amount=None, avg_cost=None):
+def record(action, price, reason="", state="IDLE", amount=None, avg_cost=None, at="2026-08-19T10:00:00+09:00"):
     return {
-        "run_id": "2026-08-19T10:00:00+09:00",
+        "run_id": at,
         "state": state,
         "pair": "btc_jpy",
         "price": price,
@@ -42,6 +42,64 @@ def record(action, price, reason="", state="IDLE", amount=None, avg_cost=None):
         "orders": [],
         "sources": [],
     }
+
+
+class 観測が途切れた日のサマリTest(unittest.TestCase):
+    """実行が止まっている間に決済が済んだ日。
+
+    launchd は Mac がスリープしている間は動かない。判断ログはその時点で
+    止まるが、`bitbank paper tick` は起床後に遡って約定を確定させるため、
+    約定履歴にだけ売却が現れる。判断ログの最終レコードを信じると、
+    売り切った日が建玉を抱えたまま負けている日に見える。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.trades = parse_trades(
+            [
+                trade("buy", "0.0077", "10282738", "2026-08-19T01:06:00.000Z"),
+                trade("sell", "0.0038", "10313586", "2026-08-19T13:32:00.000Z"),
+                trade("sell", "0.0039", "10344434", "2026-08-19T14:07:00.000Z"),
+            ],
+            "btc_jpy",
+            helpers.TZ,
+        )
+        # 最後の観測は 20:12。2本の売りはそれより後に約定している。
+        self.records = [
+            record("BUY", 10297382.0, "1 段目", at="2026-08-19T09:17:00+09:00"),
+            record(
+                "HOLD",
+                10266925.0,
+                "3 段目の基準となる約定がまだない",
+                state="LADDERING",
+                amount=0.0077,
+                avg_cost=10282738.0,
+                at="2026-08-19T20:12:00+09:00",
+            ),
+        ]
+
+    def body(self):
+        return summary.build_daily(self.config, "2026-08-19", self.records, self.trades)
+
+    def test_売り切った日を建玉なしと書く(self):
+        self.assertIn("- 建玉: なし", self.body())
+
+    def test_含み損益を書かない(self):
+        self.assertNotIn("含み損益", self.body())
+
+    def test_総資産に決済を反映する(self):
+        # 79,177 で買い、79,535 で売った。初期資金 1,000,000 に +358。
+        self.assertIn("- 総資産: 1,000,358 JPY (+0.04%)", self.body())
+
+    def test_観測より後の約定があったことを書く(self):
+        self.assertIn("- 注記: 最終観測より後に 2件の約定があった", self.body())
+
+    def test_最終観測の時刻を書く(self):
+        self.assertIn("（最終観測 20:12）", self.body())
+
+    def test_決済を数える(self):
+        self.assertIn("- 決済: 1回 / 実現損益 358 JPY", self.body())
+
 
 
 class DailyTest(unittest.TestCase):
@@ -69,7 +127,7 @@ class DailyTest(unittest.TestCase):
         text = self.body()
         self.assertIn("高値 10,334,411", text)
         self.assertIn("安値 10,250,000", text)
-        self.assertIn("終値 10,277,964", text)
+        self.assertIn("最終観測 10,277,964", text)
         self.assertIn("足の高安ではない", text)
 
     def test_約定を時刻つきで並べる(self):

@@ -52,7 +52,8 @@
 | 17  | `nampinonychus/performance.py`    | 実績の集計（総資産の推移・ドローダウン・Buy&Hold 比較。Phase 8） |
 | 18  | `nampinonychus/notify.py`         | 動きの通知と半日ごとの振り返り（1方向。URL は環境変数から）  |
 | 19  | `nampinonychus/narrate.py`        | 記録の言語化（所感・学び）。売買の判断には関与しない         |
-| 20  | `nampinonychus/veto.py`           | 買いを止める権利だけを LLM に渡す（段階2。既定は無効）       |
+| 20  | `character-design.yaml`           | 外見設計の候補（Phase 3）。採用は人間が判断する（`adopted: false`） |
+| 21  | `nampinonychus/veto.py`           | 買いを止める権利だけを LLM に渡す（段階2。既定は無効）       |
 
 Artifact はリポジトリ外（Claude Desktop 側）にある。
 
@@ -80,7 +81,7 @@ AIエージェントがどのように判断するかを定義する。
 
 ### キャラクターデザイン
 
-対象：`character-design.yaml`（今後追加。Phase 3）
+対象：`character-design.yaml`
 
 キャラクターの外見を生成するための設計情報を持つ。
 

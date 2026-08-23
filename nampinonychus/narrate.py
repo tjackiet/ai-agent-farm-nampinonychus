@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -23,6 +24,14 @@ from .config import Config, LlmSettings, REPO_ROOT
 # system, user を受け取って本文を返す。テストでは差し替える。
 Writer = Callable[[str, str], str]
 
+class NarrateError(RuntimeError):
+    """言語化に失敗した。
+
+    メッセージは記録に残してよい内容だけにする（`CLAUDE.md`「API キー・
+    シークレット・プロファイル名は、ログにも記憶にも残さない」）。
+    """
+
+
 STYLE_RULES = """守ること:
 
 - 渡された本文に書かれている数値だけを使う。新しい数値を作らない
@@ -30,7 +39,10 @@ STYLE_RULES = """守ること:
 - 損失を言い換えない。含み損は含み損、撤退は撤退と書く
 - 助言や指示をしない。起きたことへの所感だけを書く
 - 前置きをしない。1〜2文で書く
-- 記号や箇条書きを使わない。地の文で書く"""
+- 記号や箇条書きを使わない。地の文で書く
+- 敬体で書く（「〜ました」「〜です」）。一人称は「わたし」
+- **返答した文が、そのまま記録の本文になる。** 確認を求めたり、案を並べたりしない
+- ファイルを読み書きしない。道具を使わず、文だけを返す"""
 
 
 def _personality(root: Path | None = None) -> str:
@@ -90,6 +102,10 @@ def claude_code_writer(settings: LlmSettings | Config) -> Writer:
     llm = settings_of(settings) if isinstance(settings, Config) else settings
 
     def write(system: str, user: str) -> str:
+        # 作業ディレクトリを外へ逃がす。`--bare` を付けない起動は cwd の
+        # CLAUDE.md とフックを読み込むため、リポジトリの中で走らせると
+        # 「エージェントを開発する作業指示」を受け取ってしまい、記録の
+        # 一文ではなくファイル編集の許可を求める返答になる。
         argv = [
             llm.command,
             "-p",
@@ -104,16 +120,29 @@ def claude_code_writer(settings: LlmSettings | Config) -> Writer:
         ]
         if llm.bare:
             argv.insert(1, "--bare")
-        proc = subprocess.run(  # noqa: S603
-            argv,
-            input=user,
-            capture_output=True,
-            text=True,
-            timeout=llm.timeout_sec,
-            check=False,
-        )
+        try:
+            with tempfile.TemporaryDirectory(prefix="nampinonychus-narrate-") as work:
+                proc = subprocess.run(  # noqa: S603
+                    argv,
+                    input=user,
+                    capture_output=True,
+                    text=True,
+                    timeout=llm.timeout_sec,
+                    check=False,
+                    cwd=work,
+                )
+        except FileNotFoundError as exc:
+            raise NarrateError(
+                f"{llm.command} が見つかりません。PATH を確認する"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise NarrateError(
+                f"{llm.command} が {llm.timeout_sec} 秒で返らなかった"
+            ) from exc
         if proc.returncode != 0:
-            raise RuntimeError(f"{llm.command} が異常終了しました")
+            raise NarrateError(
+                f"{llm.command} が異常終了しました（終了コード {proc.returncode}）"
+            )
         return (proc.stdout or "").strip()
 
     return write
@@ -161,14 +190,49 @@ def _clean(text: str) -> str:
     return re.sub(r"^[-*・\s]+", "", line)
 
 
+def split_entries(text: str) -> list[str]:
+    """`## ` 見出しごとに区切る。見出しより前の部分は先頭の要素に残す。
+
+    lessons は建玉1回ぶんを `## ` 見出しで並べる。日誌には `## ` が無いので、
+    その場合は分割されず全体が1要素になる。
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("## ") and current:
+            parts.append("".join(current))
+            current = []
+        current.append(line)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
 def fill(text: str, writer: Writer, prompt: str) -> tuple[str, bool]:
-    """本文中の「（未記入）」を埋める。書けなければそのまま返す。"""
+    """本文中の「（未記入）」を埋める。書けなければそのまま返す。
+
+    見出しごとに1件ずつ書かせる。lessons のように複数の建玉が1つのファイルへ
+    並ぶ場合、全文をまとめて渡すと「どの建玉の話か」を決められないうえ、
+    返ってきた1文がすべての空欄へ複製されてしまう。
+    """
     if summary.UNWRITTEN not in text:
         return text, False
-    written = _clean(writer(prompt, text))
-    if not written:
-        return text, False
-    return text.replace(summary.UNWRITTEN, written), True
+    filled: list[str] = []
+    changed = False
+    for entry in split_entries(text):
+        if summary.UNWRITTEN not in entry:
+            filled.append(entry)
+            continue
+        written = _clean(writer(prompt, entry))
+        # 返答自体が「（未記入）」を含むと、次の実行がその中身をさらに置換して
+        # 入れ子に壊れる。書けなかった扱いにして空欄のまま残す。
+        if not written or summary.UNWRITTEN in written:
+            filled.append(entry)
+            continue
+        # 1件だけ置き換える。同じ見出しに空欄が複数あっても混ざらないようにする。
+        filled.append(entry.replace(summary.UNWRITTEN, written, 1))
+        changed = True
+    return "".join(filled), changed
 
 
 def fill_unwritten(
