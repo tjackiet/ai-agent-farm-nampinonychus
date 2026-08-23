@@ -7,7 +7,7 @@ action が HOLD でも必ず1行残す。何もしなかったことも判断で
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Sequence
 
@@ -61,6 +61,21 @@ def read_day(config: Config, date: str, root: Path | None = None) -> list[dict]:
     return records
 
 
+def read_recent(
+    config: Config,
+    now: datetime,
+    limit: int,
+    root: Path | None = None,
+) -> list[dict]:
+    """直近の判断ログを古い順に返す。日付をまたぐため前日ぶんも読む。"""
+    if limit <= 0:
+        return []
+    records: list[dict] = []
+    for day in (now - timedelta(days=1), now):
+        records.extend(read_day(config, timeutil.date_key(day), root))
+    return records[-limit:]
+
+
 def build_record(
     *,
     run_id: str,
@@ -75,6 +90,7 @@ def build_record(
     sources: Sequence[Source],
     warnings: Sequence[str] = (),
     error: str | None = None,
+    veto: dict | None = None,
 ) -> dict:
     return {
         "run_id": run_id,
@@ -89,6 +105,7 @@ def build_record(
         "action": action,
         "reason": reason,
         "orders": list(orders),
+        "veto": veto,
         "sources": [s.as_dict() for s in sources],
         "warnings": list(warnings),
         "error": error,
