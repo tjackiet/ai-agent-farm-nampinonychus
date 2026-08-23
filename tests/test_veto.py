@@ -263,11 +263,12 @@ class ApplyTest(unittest.TestCase):
 
 
 class ConfigTest(unittest.TestCase):
-    def test_既定は無効(self):
-        """本番稼働中の挙動を勝手に変えない。有効にするのは人間が決める。"""
-        self.assertFalse(load_config().veto_enabled)
+    def test_有効になっている(self):
+        """2026-08-23 に人間が有効にした。エージェント自身が戻さない。"""
+        self.assertTrue(load_config().veto_enabled)
 
-    def test_既定の失敗時はHOLD(self):
+    def test_失敗時はHOLD(self):
+        """呼べなかった回に買わせない。誤発注より機会損失を取る（CLAUDE.md）。"""
         self.assertEqual(load_config().veto_on_failure, "hold")
 
     def test_on_failureの値を検証する(self):

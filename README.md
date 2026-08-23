@@ -317,11 +317,12 @@ launchd から使う場合は、`bitbank` と同じく `claude` も PATH に入�
 ## 買いを止める権利だけを渡す
 
 判断を LLM へ移す段階2です（`docs/IMPLEMENTATION_PLAN.md`「判断を LLM へ移すこと」）。
-**既定は無効**です。有効にするかどうかは人間が決めます。
+有効にするかどうかは人間が決めます。**2026-08-23 に有効にしました。**
+扱うのはペーパー口座だけなので、最悪でもペーパーの損益が動くにとどまります。
 
 ```yaml
 veto:
-  enabled: true # 既定は false
+  enabled: true # 止めるなら false に戻す
   on_failure: hold # 呼べなかったときの扱い（hold | proceed）
 ```
 
@@ -348,10 +349,16 @@ veto:
 `agent.yaml` の `veto` に別に持ちます。HOLD の回には呼ばないため、
 15分ごとの実行でも呼び出しは買いを出す回だけに限られます。
 
-**有効にするなら `claude` が PATH にあることを先に確かめてください。**
+**`claude` が launchd の PATH にあることを確かめてください。**
 言語化と違い、拒否権は売買に効きます。`on_failure: hold` のまま `claude` が
-見つからないと、買いが出るたびに見送られ続けます（判断ログの `veto.error` に
-残ります）。plist の `PATH` については「定期実行」を参照してください。
+見つからないと、買いが出るたびに見送られ続けます。気づくには判断ログの
+`veto.error` を見ます。
+
+```bash
+grep -o '"veto":[^}]*}' var/memory/decisions/*.jsonl | tail
+```
+
+plist の `PATH` については「定期実行」を参照してください。
 
 ## 通知（任意）
 
@@ -461,7 +468,7 @@ Homebrew や OS 付属の Python では、`pip install` が
 - `--dry-run` は **agent.yaml より安全側にのみ**倒せます。実際に発注させるときは
   `agent.yaml` の `runtime.dry_run` を人間が `false` にします。
 - 判断は決定的なコードで行います。LLM に渡してあるのは**買いを止める権利だけ**で
-  （下記「買いを止める権利だけを渡す」、既定は無効）、買わせる方向には関与しません。
+  （下記「買いを止める権利だけを渡す」）、買わせる方向には関与しません。
   呼び出し側が `bitbank` コマンドを組み立てることもしません。
   制約の内側で LLM に判断を任せていく方針と、その段取りは
   [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
@@ -478,8 +485,8 @@ Homebrew や OS 付属の Python では、`pip install` が
 エージェント本体（Phase 6〜8）と、通知・言語化まで実装しています。
 `agent.yaml` は `agent.phase: paper` / `runtime.dry_run: false` で、
 ペーパー口座へ実際に注文を出します（実資金には触れません）。
-判断を LLM へ移す段階2（買いを止める権利だけ）は実装済みですが、
-`veto.enabled` は `false` のままです。
+判断を LLM へ移す段階2（買いを止める権利だけ）を実装し、
+2026-08-23 に `veto.enabled: true` で動かし始めました。
 外見設計（Phase 3）は `character-design.yaml` に候補を置いた段階で、
 採用は人間が判断します（`adopted: false`）。
 （現在の段階は `agent.yaml` の `agent.phase` が示します）

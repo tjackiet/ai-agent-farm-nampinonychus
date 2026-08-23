@@ -49,7 +49,10 @@ BUY_HISTORY = [
 
 class CycleTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.config = load_config()
+        # 拒否権はここでは切る。入れたままだと run_once が本物の claude を
+        # 起動してしまい、テストが遅くなるうえ LLM の答え次第で結果が変わる。
+        # 拒否権そのものは VetoCycleTest が書き手を差し替えて確かめる。
+        self.config = dataclasses.replace(load_config(), veto_enabled=False)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
 
@@ -302,6 +305,9 @@ class VetoCycleTest(unittest.TestCase):
         self.assertEqual(cycle.action, "BUY")
         self.assertIn("paper create-order", " ".join(fake.calls))
         self.assertFalse(cycle.veto["stopped"])
+        # 差し替えた書き手が使われたことを確かめる。ここが空だと、
+        # run_once が本物の claude を起動していることになる。
+        self.assertEqual(len(self.asked), 1)
 
     def test_諮ったことを判断ログに残す(self):
         self.run_cycle(FakeCli(default_responses()), "STOP: 直近が荒い")
