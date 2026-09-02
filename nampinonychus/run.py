@@ -64,7 +64,7 @@ class Cycle:
         }
 
 
-def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetime, last_price):
+def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetime, last_price, spec=None):
     """ペーパー口座を観測して状態を導出する。
 
     `paper tick` が返す `filled` は「前回からこの回までに約定したもの」。
@@ -85,6 +85,8 @@ def _observe_account(client: cli.Client, cfg: config_module.Config, now: datetim
         pnl_report=pnl if isinstance(pnl, dict) else {},
         order_rows=orders,
         history_rows=history,
+        # 売れる数量は取引単位の倍数に限られる。単位が分かる回だけ渡す。
+        unit_amount=spec.unit_amount if spec is not None else None,
     )
     trades = state_module.parse_trades(history, cfg.pair, cfg.timezone)
     filled = tick.get("filled", []) if isinstance(tick, dict) else []
@@ -189,7 +191,7 @@ def run_once(
         spec = observe.observe_pair_spec(client, cfg)
         # ペーパー口座に触る前に測る。tick も lazy tick も lastTickAt を進めるため。
         stopped_hours = state_module.stopped_hours(cfg, now, repo_root)
-        derived, trades, fills = _observe_account(client, cfg, now, market.last)
+        derived, trades, fills = _observe_account(client, cfg, now, market.last, spec)
     except cli.CliError as exc:
         error = f"{exc}（{exc.cmd}）"
     except (ValueError, KeyError, TypeError) as exc:
@@ -243,7 +245,7 @@ def run_once(
     # 実際に注文を出した回は、スナップショットを取り直す。
     if error is None and not dry_run and order_records:
         try:
-            derived, trades, _ = _observe_account(client, cfg, now, market.last)
+            derived, trades, _ = _observe_account(client, cfg, now, market.last, spec)
         except (cli.CliError, ValueError, KeyError, TypeError) as exc:
             error = f"発注後の観測に失敗した: {exc}"
 
