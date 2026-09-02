@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import tempfile
 import unittest
@@ -145,6 +146,20 @@ class SendTest(unittest.TestCase):
         failure = notify.send(self.config, ["約定 …"], poster=broken)
         self.assertIn("通知を送れませんでした", failure)
 
+    def test_状態コードを理由に残す(self):
+        """404（Webhook が無い）と 403（弾かれた）を記録から区別できること。
+
+        型名だけでは原因が追えない。状態コードは秘密ではない。
+        """
+        import urllib.error
+
+        def rejected(url, content, timeout):
+            raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+
+        failure = notify.send(self.config, ["約定 …"], poster=rejected)
+        self.assertIn("HTTP 403", failure)
+        self.assertNotIn("example.invalid", failure)
+
     def test_失敗の理由にURLを含めない(self):
         def broken(url, content, timeout):
             raise OSError("https://example.invalid/hook へ接続できません")
@@ -183,3 +198,39 @@ class PreviousTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PostTest(unittest.TestCase):
+    """Discord へ送る HTTP リクエストの形。
+
+    名乗らずに送ると、Discord の前段にいる Cloudflare が
+    `403 / error code 1010`（署名による拒否）を返す。urllib の既定の
+    User-Agent が `Python-urllib/3.x` で、これが弾かれる。本番で実際に起きた。
+    """
+
+    def test_名乗ってから送る(self):
+        import urllib.request
+
+        captured = {}
+
+        class FakeResponse:
+            def close(self):
+                pass
+
+        real = urllib.request.urlopen
+
+        def fake(request, timeout=None):
+            captured["headers"] = dict(request.header_items())
+            captured["body"] = request.data
+            return FakeResponse()
+
+        urllib.request.urlopen = fake
+        try:
+            notify._post("https://example.invalid/hook", "こんにちは", 10)
+        finally:
+            urllib.request.urlopen = real
+
+        agent = captured["headers"].get("User-agent", "")
+        self.assertTrue(agent)
+        self.assertNotIn("Python-urllib", agent)
+        self.assertIn("content", json.loads(captured["body"].decode("utf-8")))

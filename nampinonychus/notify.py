@@ -34,10 +34,17 @@ class Previous:
     state: str | None
 
 
+# 名乗らないと Discord の前段にいる Cloudflare が弾く（403 / error code 1010）。
+# urllib の既定は `Python-urllib/3.x` で、これが署名として拒否される。
+USER_AGENT = "Nampinonychus/1.0 (paper-trading agent)"
+
+
 def _post(url: str, content: str, timeout: int) -> None:
     payload = json.dumps({"content": content}).encode("utf-8")
     request = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
     )
     urllib.request.urlopen(request, timeout=timeout).close()  # noqa: S310
 
@@ -224,7 +231,9 @@ def send(
     body = "\n".join(messages)[:1900]
     try:
         (poster or _post)(url, body, config.notify_timeout_sec)
+    except urllib.error.HTTPError as exc:
+        # URL は出力しない。状態コードは秘密ではなく、原因の切り分けに要る。
+        return f"通知を送れませんでした: HTTP {exc.code}"
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        # URL は出力しない。理由だけ残す。
         return f"通知を送れませんでした: {type(exc).__name__}"
     return None
