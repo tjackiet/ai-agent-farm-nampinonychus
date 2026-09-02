@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 from typing import Sequence
 
@@ -76,6 +76,7 @@ class Account:
     cash_locked_jpy: Decimal
     cash_available_jpy: Decimal
     base_total: Decimal
+    base_available: Decimal
     equity_jpy: Decimal
 
     @property
@@ -262,9 +263,15 @@ def _build_round(trades: Sequence[Trade], closed: bool) -> Round:
 
 
 def derive_ladder(
-    trades: Sequence[Trade], config: Config, now: datetime
+    trades: Sequence[Trade], config: Config, now: datetime, flat: bool = False
 ) -> Ladder:
-    round_trades = current_round(trades)
+    """階段の現在地。
+
+    `flat` は「売れる建玉が無い」こと。約定履歴の上では端数が残っていても、
+    口座が売れないなら建玉は終わっている。畳んでおかないと1段目が再武装せず、
+    次のラウンドが始まらない。
+    """
+    round_trades = () if flat else current_round(trades)
     buys = [t for t in round_trades if t.side == "buy"]
     sells = [t for t in round_trades if t.side == "sell"]
     last_buy = buys[-1] if buys else None
@@ -291,12 +298,37 @@ def derive_ladder(
     )
 
 
+def sellable(
+    position: Decimal, base_available: Decimal, unit: Decimal | None
+) -> Decimal:
+    """実際に売りに出せる数量。
+
+    建玉には出どころが2つある。`paper pnl` は約定履歴から計算した値を返し、
+    `paper assets` は口座が持つ残高を返す。後者は浮動小数点で積まれるため、
+    売買を重ねると前者からわずかにずれる（実測で 0.0032 と
+    0.0031999999999999967）。発注は残高に対して検証されるので、
+    **少ないほうに合わせなければ弾かれる。**
+
+    さらに CLI は取引単位の倍数でない数量を丸めずに拒否する。切り捨てた
+    結果が1単位に満たないなら、それは売れない量であり、建玉として数えない。
+    """
+    held = min(position, base_available)
+    if unit is None or unit <= 0:
+        return held if held > DUST else Decimal(0)
+    held = (held / unit).to_integral_value(rounding=ROUND_FLOOR) * unit
+    return held if held >= unit else Decimal(0)
+
+
 def derive_position(
-    trades: Sequence[Trade], pnl_row: dict | None, now: datetime
+    trades: Sequence[Trade],
+    pnl_row: dict | None,
+    now: datetime,
+    amount: Decimal | None = None,
 ) -> Position:
     round_trades = current_round(trades)
     opened_at = round_trades[0].filled_at if round_trades else None
-    amount = to_decimal(pnl_row["position"]) if pnl_row else Decimal(0)
+    if amount is None:
+        amount = to_decimal(pnl_row["position"]) if pnl_row else Decimal(0)
     avg_cost = to_decimal(pnl_row["avgCost"]) if pnl_row and amount > DUST else None
     age_days = (now - opened_at).total_seconds() / 86400 if opened_at and amount > DUST else None
     return Position(
@@ -315,6 +347,7 @@ def derive(
     pnl_report: dict,
     order_rows: Sequence[dict],
     history_rows: Sequence[dict],
+    unit_amount: Decimal | None = None,
 ) -> State:
     """CLI の実測から現在状態を組み立てる。"""
     trades = parse_trades(history_rows, config.pair, config.timezone)
@@ -330,6 +363,7 @@ def derive(
     cash_locked = Decimal(0)
     cash_available = Decimal(0)
     base_total = Decimal(0)
+    base_available = Decimal(0)
     for row in assets_rows:
         if row.get("asset") == quote:
             cash_total = to_decimal(row["total"])
@@ -337,16 +371,22 @@ def derive(
             cash_available = to_decimal(row["available"])
         elif row.get("asset") == base:
             base_total = to_decimal(row["total"])
+            base_available = to_decimal(row.get("available", row["total"]))
 
-    position = derive_position(trades, pnl_row, now)
-    ladder = derive_ladder(trades, config, now)
+    unit = to_decimal(unit_amount) if unit_amount is not None else None
+    raw_position = to_decimal(pnl_row["position"]) if pnl_row else Decimal(0)
+    held = sellable(raw_position, base_available, unit)
+    position = derive_position(trades, pnl_row, now, amount=held)
+    ladder = derive_ladder(trades, config, now, flat=held <= 0)
     account = Account(
         initial_jpy=to_decimal(config.initial_jpy),
         cash_total_jpy=cash_total,
         cash_locked_jpy=cash_locked,
         cash_available_jpy=cash_available,
         base_total=base_total,
-        equity_jpy=cash_total + position.amount * last_price,
+        base_available=base_available,
+        # 総資産は実残高で評価する。売れない端数も資産ではある。
+        equity_jpy=cash_total + base_total * last_price,
     )
     return State(
         position=position,
@@ -356,7 +396,8 @@ def derive(
         pending_sell=tuple(o for o in orders if o.side == "sell"),
         realized_pnl_jpy=to_decimal(pnl_row["realizedPnl"]) if pnl_row else Decimal(0),
         unrealized_pnl_jpy=to_decimal(pnl_row["unrealizedPnl"]) if pnl_row else Decimal(0),
-        position_mismatch=abs(base_total - position.amount) > DUST,
+        # 端数のずれは日常的に起きる。1単位を超えて食い違ったときだけ異常とする。
+        position_mismatch=abs(base_total - raw_position) > (unit or DUST),
     )
 
 

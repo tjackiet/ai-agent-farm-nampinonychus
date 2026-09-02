@@ -18,6 +18,7 @@ from nampinonychus.state import (
     derive,
     derive_ladder,
     parse_trades,
+    sellable,
 )
 from tests import helpers
 from tests.helpers import load_config, market
@@ -93,6 +94,49 @@ class RoundTest(unittest.TestCase):
         self.assertEqual(count_closed_positions(parse_trades(rows, "btc_jpy", helpers.TZ)), 1)
 
 
+class 売れる数量Test(unittest.TestCase):
+    """口座の残高より多く売ろうとしないこと。
+
+    2026-08-22 に本番で止まった。`paper pnl` は約定履歴から建玉を計算し、
+    `paper assets` は口座が持つ残高を返す。後者は浮動小数点で積まれるため、
+    13ラウンド売買を重ねたところで前者からずれた。
+
+        pnl    position  0.0032
+        assets available 0.0031999999999999967
+
+    決定的コードは pnl の 0.0032 を成行で売ろうとし、CLI に
+    `insufficient btc: need 0.0032, have 0.0031999999999999967` と
+    拒否され続けた。15分ごとに同じ判断を繰り返し、11日間・400回以上。
+    """
+
+    UNIT = Decimal("0.0001")
+    HELD = Decimal("0.0031999999999999967")
+
+    def test_残高までしか売らない(self):
+        self.assertEqual(
+            sellable(Decimal("0.0032"), self.HELD, self.UNIT), Decimal("0.0031")
+        )
+
+    def test_取引単位の倍数に切り捨てる(self):
+        self.assertEqual(
+            sellable(Decimal("1"), Decimal("0.00125"), self.UNIT), Decimal("0.0012")
+        )
+
+    def test_一単位に満たない残高は建玉として数えない(self):
+        """0.0031 を売ったあとに残る端数。CLI が受け付けないので売れない。
+
+        建玉として数え続けると、ラウンドが閉じず1段目が再武装しない。
+        """
+        self.assertEqual(
+            sellable(Decimal("0.0001"), Decimal("0.0000999999999999967"), self.UNIT),
+            Decimal(0),
+        )
+
+    def test_単位が分からなければ残高だけで抑える(self):
+        self.assertEqual(sellable(Decimal("0.0032"), self.HELD, None), self.HELD)
+
+
+
 class DeriveTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
@@ -127,6 +171,75 @@ class DeriveTest(unittest.TestCase):
             last_price=Decimal("14700000"),
             **args,
         )
+
+    def test_残高が建玉にわずかに足りなくても超えて売らない(self):
+        """本番で止まった状態そのもの。pnl 0.0032 / 残高 0.0031999999999999967。"""
+        state = self.derive(
+            assets_rows=[
+                {"asset": "jpy", "total": 967920, "locked": 0, "available": 967920},
+                {
+                    "asset": "btc",
+                    "total": 0.0031999999999999967,
+                    "locked": 0,
+                    "available": 0.0031999999999999967,
+                },
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": 0.0032,
+                        "avgCost": 12438813,
+                        "currentPrice": 12415315,
+                        "realizedPnl": 7726.4,
+                        "unrealizedPnl": -75.19,
+                        "totalPnl": 7651.2,
+                    }
+                }
+            },
+            history_rows=[trade("buy", "0.0032", "12438813", "2026-08-22T00:00:00.000Z")],
+            unit_amount=Decimal("0.0001"),
+        )
+        self.assertEqual(state.position.amount, Decimal("0.0031"))
+        self.assertLessEqual(state.position.amount, state.account.base_available)
+        # 端数のずれは異常ではない。1単位を超えて食い違ったときだけ立てる。
+        self.assertFalse(state.position_mismatch)
+
+    def test_売れない端数だけになったらラウンドを畳む(self):
+        """建玉として数え続けると1段目が再武装せず、次のラウンドが始まらない。"""
+        state = self.derive(
+            assets_rows=[
+                {"asset": "jpy", "total": 999000, "locked": 0, "available": 999000},
+                {
+                    "asset": "btc",
+                    "total": 0.0000999999999999967,
+                    "locked": 0,
+                    "available": 0.0000999999999999967,
+                },
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": 0.0001,
+                        "avgCost": 12438813,
+                        "currentPrice": 12415315,
+                        "realizedPnl": 7726.4,
+                        "unrealizedPnl": -2,
+                        "totalPnl": 7724,
+                    }
+                }
+            },
+            history_rows=[
+                trade("buy", "0.0032", "12438813", "2026-08-22T00:00:00.000Z"),
+                trade("sell", "0.0031", "12500000", "2026-08-22T01:00:00.000Z"),
+            ],
+            unit_amount=Decimal("0.0001"),
+        )
+        self.assertEqual(state.position.amount, Decimal(0))
+        self.assertIsNone(state.position.avg_cost_jpy)
+        self.assertEqual(state.ladder.step, 0)
+        self.assertIsNone(state.ladder.last_fill_price_jpy)
 
     def test_建玉と平均取得単価をpnlから取る(self):
         state = self.derive()

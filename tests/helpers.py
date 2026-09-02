@@ -119,6 +119,7 @@ def state(
             cash_locked_jpy=Decimal(cash) - available,
             cash_available_jpy=available,
             base_total=amount,
+            base_available=amount,
             equity_jpy=Decimal(equity) if equity else Decimal(cash) + amount * Decimal("14700000"),
         ),
         pending_buy=tuple(pending_buy),
