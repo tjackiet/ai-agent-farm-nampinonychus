@@ -150,6 +150,17 @@ class RoundTest(unittest.TestCase):
         ]
         self.assertEqual(count_closed_positions(parse_trades(rows, "btc_jpy", helpers.TZ)), 1)
 
+    def test_端数で閉じたラウンドも決済として数える(self):
+        rows = [
+            trade("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+            trade("sell", "0.0031", "12415315", "2026-09-02T06:19:00.000Z"),
+            trade("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+        ]
+        trades = parse_trades(rows, "btc_jpy", helpers.TZ)
+        # 取引単位を渡せなければ、これまでどおり端数を建玉として数える。
+        self.assertEqual(count_closed_positions(trades), 0)
+        self.assertEqual(count_closed_positions(trades, UNIT), 1)
+
 
 class 売れる数量Test(unittest.TestCase):
     """口座の残高より多く売ろうとしないこと。

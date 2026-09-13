@@ -443,13 +443,20 @@ MOOD_BY_STATE = {
 }
 
 
-def count_closed_positions(trades: Sequence[Trade]) -> int:
-    """建玉がゼロへ戻った回数。"""
+def count_closed_positions(
+    trades: Sequence[Trade], unit: Decimal | None = None
+) -> int:
+    """建玉がゼロへ戻った回数。
+
+    区切りかたは `rounds` と揃える。売れない端数が残っていても、
+    そのラウンドは閉じたものとして数える（`is_flat`）。
+    単位を渡せない経路では、これまでどおり `DUST` で判定する。
+    """
     position = Decimal(0)
     closed = 0
     for trade in trades:
         position += trade.amount if trade.side == "buy" else -trade.amount
-        if position <= DUST and trade.side == "sell":
+        if is_flat(position, unit) and trade.side == "sell":
             position = Decimal(0)
             closed += 1
     return closed
@@ -473,6 +480,7 @@ def build_status(
     action: str | None,
     reason: str | None,
     price_source: str | None,
+    unit: Decimal | None = None,
 ) -> dict:
     """status.yaml の内容を組み立てる。状態の正ではなくスナップショット。"""
     document: dict = {
@@ -522,7 +530,7 @@ def build_status(
         "counters": {
             "fills_today": 0,
             "total_fills": len(trades),
-            "closed_positions": count_closed_positions(trades),
+            "closed_positions": count_closed_positions(trades, unit),
             "realized_pnl_jpy": 0,
         },
         "notes": None,

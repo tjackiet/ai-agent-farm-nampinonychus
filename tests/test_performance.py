@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from decimal import Decimal
+from pathlib import Path
+
+import yaml
 
 from nampinonychus import performance
 from nampinonychus.state import parse_trades, rounds
@@ -12,6 +17,9 @@ from tests.helpers import load_config
 from tests.test_summary import record, trade
 
 NOW = helpers.at("2026-08-19T12:00:00+09:00")
+
+# bitbank の btc_jpy の取引単位（helpers.PAIR_ROW と同じ）。
+UNIT = Decimal("0.0001")
 
 
 def at_record(hhmm: str, price: float, **kwargs):
@@ -129,6 +137,60 @@ class StreakTest(unittest.TestCase):
     def test_同時に立たない(self):
         wins, losses = performance.streaks(self.build([100000, -100000]))
         self.assertEqual((wins, losses), (0, 1))
+
+
+class 端数で閉じたラウンドTest(unittest.TestCase):
+    """2026-09-02 に本番で起きた状態（PR #30 と同じ履歴）。
+
+    保有上限を超えた建玉 0.0032 を成行で手仕舞ったが、取引単位への
+    切り捨てで 0.0001 が売れ残った。判断側は `is_flat` で畳んでいるが、
+    記録側が取引単位を受け取らないと 8 月のラウンドが開いたままになり、
+    連勝連敗に現れない。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.trades = parse_trades(
+            [
+                trade("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+                trade("sell", "0.0031", "12415315", "2026-09-02T06:19:00.000Z"),
+                trade("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+            ],
+            "btc_jpy",
+            helpers.TZ,
+        )
+        self.records = [
+            record("HOLD", 12_400_000.0, state="HOLDING", at="2026-09-04T12:00:00+09:00")
+        ]
+        self.now = helpers.at("2026-09-05T12:00:00+09:00")
+
+    def test_取引単位を渡せば決済済みとして数える(self):
+        document = performance.build(
+            self.config, self.now, self.records, self.trades, UNIT
+        )
+        # 8 月のラウンドは -73 JPY で終わっている。
+        self.assertEqual(document["consecutive_losses"], 1)
+        self.assertEqual(document["consecutive_wins"], 0)
+
+    def test_取引単位を渡さなければ従来どおり(self):
+        document = performance.build(self.config, self.now, self.records, self.trades)
+        self.assertEqual(document["consecutive_losses"], 0)
+        self.assertEqual(document["consecutive_wins"], 0)
+
+    def test_refreshも取引単位を渡す(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            path = root / self.config.decisions_path.format(date="2026-09-04")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(self.records[0], ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            written = performance.refresh(
+                self.config, self.now, self.trades, root, UNIT
+            )
+            document = yaml.safe_load(written.read_text(encoding="utf-8"))
+        self.assertEqual(document["consecutive_losses"], 1)
 
 
 class BuildTest(unittest.TestCase):

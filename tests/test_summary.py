@@ -15,6 +15,17 @@ from tests.helpers import load_config
 
 NOW = helpers.at("2026-08-19T23:55:00+09:00")
 
+# bitbank の btc_jpy の取引単位（helpers.PAIR_ROW と同じ）。
+UNIT = Decimal("0.0001")
+
+# 2026-09-02 に本番で起きた履歴（PR #30 と同じ）。保有上限を超えた建玉を
+# 成行で手仕舞ったが、取引単位への切り捨てで 0.0001 が売れ残った。
+DUST_ROWS = [
+    ("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+    ("sell", "0.0031", "12415315", "2026-09-02T06:19:00.000Z"),
+    ("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+]
+
 
 def trade(side, amount, price, filled_at, fee="0"):
     return {
@@ -149,6 +160,49 @@ class DailyTest(unittest.TestCase):
         self.assertIn("価格: 観測できていない", text)
 
 
+class 端数が残った日のサマリTest(unittest.TestCase):
+    """売れ残った 0.0001 を建玉として書かないこと。
+
+    端数は取引単位（0.0001）と同値なので、`DUST`（0.00000001）では
+    拾えない。建玉として書くと、決済した日が抱えたままに見えるうえ、
+    次に買った日の建玉が端数のぶんだけ多く出る。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.trades = parse_trades(
+            [trade(*row) for row in DUST_ROWS], "btc_jpy", helpers.TZ
+        )
+
+    def body(self, date: str, price: float, unit=UNIT):
+        records = [
+            record("HOLD", price, state="HOLDING", at=f"{date}T20:00:00+09:00")
+        ]
+        return summary.build_daily(self.config, date, records, self.trades, unit)
+
+    def test_端数だけの日を建玉なしと書く(self):
+        text = self.body("2026-09-02", 12_415_315.0)
+        self.assertIn("- 建玉: なし", text)
+        self.assertNotIn("含み損益", text)
+
+    def test_取引単位を渡さなければ従来どおり端数を建玉として書く(self):
+        text = self.body("2026-09-02", 12_415_315.0, unit=None)
+        self.assertIn("- 建玉: 0.0001 BTC", text)
+
+    def test_端数で閉じたラウンドを決済として数える(self):
+        self.assertIn(
+            "- 決済: 1回 / 実現損益 -73 JPY", self.body("2026-09-02", 12_415_315.0)
+        )
+
+    def test_次のラウンドの建玉に端数を持ち越さない(self):
+        text = self.body("2026-09-04", 12_400_000.0)
+        self.assertIn("- 建玉: 0.0032 BTC", text)
+
+    def test_取引単位を渡さなければ端数を持ち越したまま(self):
+        text = self.body("2026-09-04", 12_400_000.0, unit=None)
+        self.assertIn("- 建玉: 0.0033 BTC", text)
+
+
 class LessonTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
@@ -233,6 +287,46 @@ class EnsureTest(unittest.TestCase):
 
     def test_判断ログが無ければ何も書かない(self):
         self.assertEqual(summary.ensure(self.config, NOW, (), self.root), [])
+
+
+class 端数で閉じたラウンドのlessonsTest(unittest.TestCase):
+    """端数で閉じたラウンドを、完結した建玉として lessons に残すこと。"""
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.now = helpers.at("2026-09-05T23:55:00+09:00")
+        self.trades = parse_trades(
+            [trade(*row) for row in DUST_ROWS], "btc_jpy", helpers.TZ
+        )
+        path = self.root / self.config.decisions_path.format(date="2026-09-02")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                record("SELL", 12_415_315.0, state="HOLDING", at="2026-09-02T20:00:00+09:00"),
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def lessons(self) -> str:
+        path = summary.lessons_path(self.config, self.root)
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def test_取引単位を渡せば完結した建玉として書く(self):
+        summary.ensure(self.config, self.now, self.trades, self.root, UNIT)
+        text = self.lessons()
+        self.assertIn("## 2026-08-21 〜 2026-09-02 / btc_jpy / -73 JPY", text)
+        self.assertIn("- 使った段: 1", text)
+
+    def test_取引単位を渡さなければ書かない(self):
+        summary.ensure(self.config, self.now, self.trades, self.root)
+        self.assertEqual(self.lessons(), "")
 
 
 if __name__ == "__main__":
