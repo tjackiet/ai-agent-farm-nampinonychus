@@ -216,6 +216,9 @@ def run_once(
                 cfg, guards, market, spec, derived, now, stopped_hours
             )
 
+    # 記録の区切りにも売れる数量の判定が要る。観測できなかった回は None。
+    unit = spec.unit_amount if spec is not None else None
+
     veto = veto_module.SKIPPED
     if error is None:
         veto = _review(
@@ -281,6 +284,7 @@ def run_once(
             action=decision.action,
             reason=decision.reason,
             price_source=market.source_cmd if market is not None else None,
+            unit=unit,
         )
         root = repo_root if repo_root is not None else config_module.REPO_ROOT
         # 書き出し先は Git 管理外。リポジトリの status.yaml は見本として触らない。
@@ -293,9 +297,11 @@ def run_once(
     all_records = performance_module.all_records(cfg, repo_root)
     if error is None and derived is not None:
         try:
-            summary_module.ensure(cfg, now, trades, repo_root)
+            summary_module.ensure(cfg, now, trades, repo_root, unit)
             _narrate(cfg, repo_root, client, narrator)
-            performance_doc = performance_module.build(cfg, now, all_records, trades)
+            performance_doc = performance_module.build(
+                cfg, now, all_records, trades, unit
+            )
             performance_module.write(
                 performance_doc,
                 (repo_root if repo_root is not None else config_module.REPO_ROOT)

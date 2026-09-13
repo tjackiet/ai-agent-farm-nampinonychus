@@ -15,7 +15,7 @@ from typing import Sequence
 
 from . import journal, performance, timeutil
 from .config import Config, REPO_ROOT
-from .state import DUST, Round, Trade, rounds
+from .state import Round, Trade, is_flat, rounds
 
 # 未記入であることを示す印。あとで言語化するときはこの行を置き換える。
 UNWRITTEN = "（未記入）"
@@ -47,13 +47,21 @@ def lessons_path(config: Config, root: Path | None = None) -> Path:
 
 
 def build_daily(
-    config: Config, date: str, records: Sequence[dict], trades: Sequence[Trade]
+    config: Config,
+    date: str,
+    records: Sequence[dict],
+    trades: Sequence[Trade],
+    unit: Decimal | None = None,
 ) -> str:
     """その日の判断ログと約定から、日次サマリの本文を作る。
 
     建玉と総資産は約定履歴から組み立てる。判断ログの最終レコードを使うと、
     実行が途切れた時間帯の約定が抜け落ち、決済した日が建玉を抱えたままに
     見えてしまう（点列の補正は `performance.settled`）。
+
+    `unit` は取引単位（`PairSpec.unit_amount`）。売れない端数しか残って
+    いない日を「建玉あり」と書かないために使う。渡せない回は従来どおり
+    `DUST` で判定する。
     """
     prices = [r["price"] for r in records if isinstance(r.get("price"), (int, float))]
     actions = [r.get("action") for r in records]
@@ -65,7 +73,7 @@ def build_daily(
         performance.equity_series(config, records, trades, config.timezone),
         day_trades,
     )
-    held, avg_cost = _closing_position(date, trades)
+    held, avg_cost = _closing_position(date, trades, unit)
 
     lines = [f"# {date}", ""]
     seen = f"（最終観測 {observed_at.strftime('%H:%M')}）" if observed_at else ""
@@ -99,7 +107,7 @@ def build_daily(
     else:
         lines.append("- 約定: なし")
 
-    if held > DUST:
+    if not is_flat(held, unit):
         lines.append(f"- 建玉: {_btc(held)} BTC / 平均取得単価 {_jpy(avg_cost)}")
         if prices and avg_cost:
             price = Decimal(str(prices[-1]))
@@ -113,7 +121,11 @@ def build_daily(
     else:
         lines.append("- 建玉: なし")
 
-    closed = [r for r in rounds(trades) if r.is_closed and timeutil.date_key(r.closed_at) == date]
+    closed = [
+        r
+        for r in rounds(trades, unit)
+        if r.is_closed and timeutil.date_key(r.closed_at) == date
+    ]
     if closed:
         total = sum((r.realized_pnl_jpy for r in closed), Decimal(0))
         lines.append(f"- 決済: {len(closed)}回 / 実現損益 {_jpy(total)} JPY")
@@ -147,18 +159,28 @@ def _observed_at(config: Config, record: dict) -> datetime | None:
         return None
 
 
-def _closing_position(date: str, trades: Sequence[Trade]) -> tuple[Decimal, Decimal | None]:
+def _closing_position(
+    date: str, trades: Sequence[Trade], unit: Decimal | None = None
+) -> tuple[Decimal, Decimal | None]:
     """その日の終わりに残っていた建玉と、その平均取得単価。
 
     判断ログではなく約定履歴から数える。実行が途切れていても結果は変わらない。
+
+    数えかたは `rounds` と揃える。売れない端数でラウンドが閉じたら、その
+    端数はもう建玉ではない。持ち越すと、次のラウンドの建玉が端数のぶんだけ
+    多く見える（0.0032 を買った日に 0.0033 と書いてしまう）。
     """
     upto = [t for t in trades if timeutil.date_key(t.filled_at) <= date]
-    held = sum(
-        (t.amount if t.side == "buy" else -t.amount for t in upto), Decimal(0)
-    )
-    if held <= DUST:
+    held = Decimal(0)
+    for t in upto:
+        held += t.amount if t.side == "buy" else -t.amount
+        if is_flat(held, unit):
+            held = Decimal(0)
+    if is_flat(held, unit):
         return Decimal(0), None
-    open_round = next((r for r in reversed(rounds(upto)) if not r.is_closed), None)
+    open_round = next(
+        (r for r in reversed(rounds(upto, unit)) if not r.is_closed), None
+    )
     return held, open_round.avg_cost_jpy if open_round else None
 
 
@@ -225,6 +247,7 @@ def ensure(
     now: datetime,
     trades: Sequence[Trade],
     root: Path | None = None,
+    unit: Decimal | None = None,
 ) -> list[Path]:
     """書けるようになった日次サマリと lessons を書き出す。
 
@@ -245,10 +268,12 @@ def ensure(
         if not records:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(build_daily(config, date, records, trades), encoding="utf-8")
+        path.write_text(
+            build_daily(config, date, records, trades, unit), encoding="utf-8"
+        )
         written.append(path)
 
-    closed = [r for r in rounds(trades) if r.is_closed]
+    closed = [r for r in rounds(trades, unit) if r.is_closed]
     if closed:
         path = lessons_path(config, root)
         existing = path.read_text(encoding="utf-8") if path.exists() else ""

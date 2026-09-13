@@ -173,8 +173,14 @@ def build(
     now: datetime,
     records: Sequence[dict],
     trades: Sequence[Trade],
+    unit: Decimal | None = None,
 ) -> dict:
-    """records/performance.sample.yaml と同じ形式の実績を組み立てる。"""
+    """records/performance.sample.yaml と同じ形式の実績を組み立てる。
+
+    `unit` は取引単位（`PairSpec.unit_amount`）。売れない端数が残った
+    ラウンドを決済済みとして数えるために `rounds` へ渡す。観測できなかった
+    回は None になるので、そのときは従来どおり `DUST` で判定する。
+    """
     points = equity_series(config, records, trades, config.timezone)
     initial = Decimal(str(config.initial_jpy))
     current = points[-1].equity_jpy if points else initial
@@ -184,7 +190,7 @@ def build(
     base = window[0].equity_jpy if window else (points[0].equity_jpy if points else initial)
     pnl_24h = (current - base) / base * Decimal(100) if base > 0 else Decimal(0)
 
-    closed = [r for r in rounds(trades) if r.is_closed]
+    closed = [r for r in rounds(trades, unit) if r.is_closed]
     wins, losses = streaks(closed)
 
     return {
@@ -233,8 +239,9 @@ def refresh(
     now: datetime,
     trades: Sequence[Trade],
     root: Path | None = None,
+    unit: Decimal | None = None,
 ) -> Path:
     """実績を組み立てて書き出す。"""
     base = root if root is not None else REPO_ROOT
-    document = build(config, now, all_records(config, root), trades)
+    document = build(config, now, all_records(config, root), trades, unit)
     return write(document, base / config.performance_output)
