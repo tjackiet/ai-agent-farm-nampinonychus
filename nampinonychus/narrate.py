@@ -140,8 +140,14 @@ def claude_code_writer(settings: LlmSettings | Config) -> Writer:
                 f"{llm.command} が {llm.timeout_sec} 秒で返らなかった"
             ) from exc
         if proc.returncode != 0:
+            # 終了コードだけでは原因が分からない。OAuth の期限切れは
+            # 標準エラー出力にしか出ず、2026-09-04 以降ずっと拒否権を諮れない
+            # 状態だったのに、ログからは理由が読めなかった。
+            # 資格情報が混ざりうるので、veto と同じ 300 文字で切り詰める。
+            detail = " ".join((proc.stderr or "").split())[:300]
             raise NarrateError(
                 f"{llm.command} が異常終了しました（終了コード {proc.returncode}）"
+                + (f": {detail}" if detail else "")
             )
         return (proc.stdout or "").strip()
 

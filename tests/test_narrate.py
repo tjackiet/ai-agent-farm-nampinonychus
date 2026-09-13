@@ -341,6 +341,38 @@ class 失敗の伝えかたTest(unittest.TestCase):
             self._write(failed)
         self.assertIn("3", str(caught.exception))
 
+    def test_異常終了なら標準エラー出力も残す(self):
+        """終了コードだけでは、認証切れなのか設定違いなのか分からない。
+
+        2026-09-04 以降、拒否権を諮れず買いが全て HOLD になっていたが、
+        理由は標準エラー出力にしか出ておらず、ログからは読めなかった。
+        """
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                "",
+                "Failed to authenticate: OAuth session expired and could not be refreshed\n",
+            )
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("OAuth session expired", str(caught.exception))
+
+    def test_標準エラー出力は300文字で切る(self):
+        """資格情報が混ざりうるので、veto と同じ長さに合わせる。"""
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1, "", "e" * 500)
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("e" * 300, str(caught.exception))
+        self.assertNotIn("e" * 301, str(caught.exception))
+
 
 
 class CommentTest(unittest.TestCase):

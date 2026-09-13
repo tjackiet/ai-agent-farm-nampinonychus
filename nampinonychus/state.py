@@ -160,19 +160,22 @@ def parse_open_orders(rows: Sequence[dict], pair: str, tz_name: str) -> tuple[Op
     )
 
 
-def current_round(trades: Sequence[Trade]) -> tuple[Trade, ...]:
+def current_round(
+    trades: Sequence[Trade], unit: Decimal | None = None
+) -> tuple[Trade, ...]:
     """いまの建玉ラウンドの約定だけを取り出す。
 
-    建玉がゼロになった時点でラウンドは終わり、次の買いから数え直す。
+    売れる建玉が無くなった時点でラウンドは終わり、次の買いから数え直す。
+    売れない端数が残っていても終わりとみなす（`is_flat`）。
     """
     position = Decimal(0)
     round_trades: list[Trade] = []
     for trade in trades:
-        if position <= DUST and trade.side == "buy":
+        if is_flat(position, unit) and trade.side == "buy":
             round_trades = []
         round_trades.append(trade)
         position += trade.amount if trade.side == "buy" else -trade.amount
-        if position <= DUST:
+        if is_flat(position, unit):
             position = Decimal(0)
             round_trades = []
     return tuple(round_trades)
@@ -202,22 +205,26 @@ class Round:
         return self.realized_pnl_jpy / self.cost_jpy * Decimal(100)
 
 
-def rounds(trades: Sequence[Trade]) -> tuple[Round, ...]:
+def rounds(
+    trades: Sequence[Trade], unit: Decimal | None = None
+) -> tuple[Round, ...]:
     """約定履歴を建玉のラウンドごとに区切る。
 
     平均取得単価と実現損益の求めかたは `bitbank paper pnl` に合わせる。
     買いは手数料を取得単価へ上乗せし、売りは手取りから手数料を引く。
+
+    ラウンドの切れ目は `current_round` と同じ `is_flat` で決める。
     """
     result: list[Round] = []
     current: list[Trade] = []
     position = Decimal(0)
 
     for trade in trades:
-        if position <= DUST and trade.side == "buy":
+        if is_flat(position, unit) and trade.side == "buy":
             current = []
         current.append(trade)
         position += trade.amount if trade.side == "buy" else -trade.amount
-        if position <= DUST and current:
+        if is_flat(position, unit) and current:
             result.append(_build_round(current, closed=True))
             current = []
             position = Decimal(0)
@@ -263,7 +270,11 @@ def _build_round(trades: Sequence[Trade], closed: bool) -> Round:
 
 
 def derive_ladder(
-    trades: Sequence[Trade], config: Config, now: datetime, flat: bool = False
+    trades: Sequence[Trade],
+    config: Config,
+    now: datetime,
+    flat: bool = False,
+    unit: Decimal | None = None,
 ) -> Ladder:
     """階段の現在地。
 
@@ -271,7 +282,7 @@ def derive_ladder(
     口座が売れないなら建玉は終わっている。畳んでおかないと1段目が再武装せず、
     次のラウンドが始まらない。
     """
-    round_trades = () if flat else current_round(trades)
+    round_trades = () if flat else current_round(trades, unit)
     buys = [t for t in round_trades if t.side == "buy"]
     sells = [t for t in round_trades if t.side == "sell"]
     last_buy = buys[-1] if buys else None
@@ -319,13 +330,33 @@ def sellable(
     return held if held >= unit else Decimal(0)
 
 
+def is_flat(position: Decimal, unit: Decimal | None) -> bool:
+    """その建玉を、もう無いものとして扱ってよいか。
+
+    残高は浮動小数点で積まれるため、約定履歴から数えた建玉よりわずかに
+    少なくなる（実測で 0.0032 に対し 0.0031999999999999967）。`sellable` は
+    取引単位へ切り捨てるので、このずれがあると履歴の末尾 1 単位は発注できない。
+    履歴の上で 1 単位しか残っていない建玉は、売り切ったものとして扱う。
+
+    畳まないとラウンドが閉じず、`Position.opened_at` が古いまま固定される。
+    新しく買った建玉がその回のうちに時間切れで投げられ、往復だけが続く
+    （2026-09-02〜09-04 に22往復）。
+
+    単位を渡せない経路では、これまでどおり `DUST` で判定する。
+    """
+    if unit is None or unit <= 0:
+        return position <= DUST
+    return sellable(position, position - DUST, unit) <= 0
+
+
 def derive_position(
     trades: Sequence[Trade],
     pnl_row: dict | None,
     now: datetime,
     amount: Decimal | None = None,
+    unit: Decimal | None = None,
 ) -> Position:
-    round_trades = current_round(trades)
+    round_trades = current_round(trades, unit)
     opened_at = round_trades[0].filled_at if round_trades else None
     if amount is None:
         amount = to_decimal(pnl_row["position"]) if pnl_row else Decimal(0)
@@ -376,8 +407,8 @@ def derive(
     unit = to_decimal(unit_amount) if unit_amount is not None else None
     raw_position = to_decimal(pnl_row["position"]) if pnl_row else Decimal(0)
     held = sellable(raw_position, base_available, unit)
-    position = derive_position(trades, pnl_row, now, amount=held)
-    ladder = derive_ladder(trades, config, now, flat=held <= 0)
+    position = derive_position(trades, pnl_row, now, amount=held, unit=unit)
+    ladder = derive_ladder(trades, config, now, flat=held <= 0, unit=unit)
     account = Account(
         initial_jpy=to_decimal(config.initial_jpy),
         cash_total_jpy=cash_total,
