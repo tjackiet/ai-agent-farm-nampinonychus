@@ -75,3 +75,14 @@ class CharacterDesignTest(unittest.TestCase):
         for mood in ("normal", "down", "up"):
             with self.subTest(mood=mood):
                 self.assertTrue(prompt[mood].strip())
+
+    def test_指示文に識別要素が入っている(self):
+        """`identity_anchors` を書いても、指示文に載らなければ絵に出ない。"""
+        common = self.doc["image_prompt"]["common"]
+        for word in ("うつむき", "5本", "爪"):
+            with self.subTest(word=word):
+                self.assertIn(word, common)
+
+    def test_downを悲しませない指示になっている(self):
+        """成績が下向きなだけで、気分が沈んでいるわけではない。"""
+        self.assertIn("悲しませない", self.doc["image_prompt"]["down"])
