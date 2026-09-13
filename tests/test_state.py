@@ -17,7 +17,9 @@ from nampinonychus.state import (
     current_round,
     derive,
     derive_ladder,
+    is_flat,
     parse_trades,
+    rounds,
     sellable,
 )
 from tests import helpers
@@ -37,6 +39,10 @@ def trade(side: str, amount: str, price: str, filled_at: str, fee: str = "0", pa
         "feeQuote": float(fee),
         "filledAt": filled_at,
     }
+
+
+# bitbank の btc_jpy の取引単位（helpers.PAIR_ROW と同じ）。
+UNIT = Decimal("0.0001")
 
 
 class RoundTest(unittest.TestCase):
@@ -84,6 +90,57 @@ class RoundTest(unittest.TestCase):
     def test_他のペアの約定は数えない(self):
         rows = [trade("buy", "1", "500", "2026-08-18T00:00:00.000Z", pair="xrp_jpy")]
         self.assertEqual(len(parse_trades(rows, "btc_jpy", helpers.TZ)), 0)
+
+    def test_売れ残った端数が取引単位と同値でもラウンドを閉じる(self):
+        """2026-09-02 に本番で起きた状態。
+
+        保有上限を超えた建玉 0.0032 を成行で手仕舞ったが、`sellable` が
+        残高側のずれを切り捨てたため 0.0001 が売れ残った。この端数は
+        取引単位（0.0001）と同値なので、「取引単位未満」では拾えない。
+        ラウンドが 2026-08-21 の買いのまま閉じないと `opened_at` が固定され、
+        新しく買った建玉がその回のうちに時間切れで投げられる。
+        """
+        rows = [
+            trade("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+            trade("sell", "0.0031", "12415315", "2026-09-02T06:19:00.000Z"),
+            trade("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+        ]
+        trades = parse_trades(rows, "btc_jpy", helpers.TZ)
+
+        # 取引単位を渡せなければ、これまでどおり端数を建玉として数える。
+        self.assertEqual(len(current_round(trades)), 3)
+
+        round_trades = current_round(trades, UNIT)
+        self.assertEqual(len(round_trades), 1)
+        self.assertEqual(
+            round_trades[0].filled_at, helpers.at("2026-09-04T09:00:00+09:00")
+        )
+
+    def test_端数で閉じたラウンドを決済として区切る(self):
+        rows = [
+            trade("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+            trade("sell", "0.0031", "12415315", "2026-09-02T06:19:00.000Z"),
+            trade("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+        ]
+        trades = parse_trades(rows, "btc_jpy", helpers.TZ)
+        result = rounds(trades, UNIT)
+        self.assertEqual([r.is_closed for r in result], [True, False])
+        self.assertEqual(
+            result[0].closed_at, helpers.at("2026-09-02T15:19:00+09:00")
+        )
+        self.assertEqual(
+            result[1].opened_at, helpers.at("2026-09-04T09:00:00+09:00")
+        )
+
+    def test_売れる建玉が残っていればラウンドは続く(self):
+        """端数が2単位あれば、1単位ぶん削られてもまだ発注できる。"""
+        rows = [
+            trade("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+            trade("sell", "0.0030", "12415315", "2026-09-02T06:19:00.000Z"),
+            trade("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+        ]
+        trades = parse_trades(rows, "btc_jpy", helpers.TZ)
+        self.assertEqual(len(current_round(trades, UNIT)), 3)
 
     def test_決済回数を数える(self):
         rows = [
@@ -135,13 +192,22 @@ class 売れる数量Test(unittest.TestCase):
     def test_単位が分からなければ残高だけで抑える(self):
         self.assertEqual(sellable(Decimal("0.0032"), self.HELD, None), self.HELD)
 
+    def test_履歴に1単位しか残らない建玉は畳む(self):
+        """残高は履歴より少なくなりうるので、末尾の1単位は発注できない。"""
+        self.assertTrue(is_flat(Decimal("0.0001"), self.UNIT))
+        self.assertFalse(is_flat(Decimal("0.0002"), self.UNIT))
+
+    def test_単位が分からなければDUSTで判定する(self):
+        self.assertFalse(is_flat(Decimal("0.0001"), None))
+        self.assertTrue(is_flat(Decimal(0), None))
+
 
 
 class DeriveTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
 
-    def derive(self, **kwargs):
+    def derive(self, now=NOW, **kwargs):
         args = {
             "assets_rows": [
                 {"asset": "jpy", "total": 921430, "locked": 0, "available": 921430},
@@ -167,7 +233,7 @@ class DeriveTest(unittest.TestCase):
         args.update(kwargs)
         return derive(
             config=self.config,
-            now=NOW,
+            now=now,
             last_price=Decimal("14700000"),
             **args,
         )
@@ -240,6 +306,51 @@ class DeriveTest(unittest.TestCase):
         self.assertIsNone(state.position.avg_cost_jpy)
         self.assertEqual(state.ladder.step, 0)
         self.assertIsNone(state.ladder.last_fill_price_jpy)
+
+    def test_端数を残したあとの買いから保有日数を数え直す(self):
+        """2026-09-02〜09-04 に22往復した状態。
+
+        端数のせいでラウンドが閉じず `opened_at` が 8月に固定され、
+        買った直後の建玉が毎回 `time_stop_days` を超えていた。
+        """
+        state = self.derive(
+            now=helpers.at("2026-09-04T09:10:00+09:00"),
+            assets_rows=[
+                {"asset": "jpy", "total": 960000, "locked": 0, "available": 960000},
+                {
+                    "asset": "btc",
+                    "total": 0.0032999999999999967,
+                    "locked": 0,
+                    "available": 0.0032999999999999967,
+                },
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": 0.0033,
+                        "avgCost": 12400000,
+                        "currentPrice": 12415315,
+                        "realizedPnl": 7726.4,
+                        "unrealizedPnl": 50,
+                        "totalPnl": 7776.4,
+                    }
+                }
+            },
+            history_rows=[
+                trade("buy", "0.0032", "12438813", "2026-08-21T00:00:00.000Z"),
+                trade("sell", "0.0031", "12415315", "2026-09-02T06:19:00.000Z"),
+                trade("buy", "0.0032", "12400000", "2026-09-04T00:00:00.000Z"),
+            ],
+            unit_amount=Decimal("0.0001"),
+        )
+        self.assertEqual(state.position.amount, Decimal("0.0032"))
+        self.assertEqual(
+            state.position.opened_at, helpers.at("2026-09-04T09:00:00+09:00")
+        )
+        self.assertLess(state.position.age_days, 1)
+        self.assertEqual(state.ladder.step, 1)
+        self.assertFalse(state.position_mismatch)
 
     def test_建玉と平均取得単価をpnlから取る(self):
         state = self.derive()

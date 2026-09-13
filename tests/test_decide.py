@@ -6,6 +6,7 @@ import unittest
 from decimal import Decimal
 
 from nampinonychus.decide import BUY, HOLD, SELL, decide, desired_sell_orders, state_name
+from nampinonychus.state import derive as derive_state
 from tests import helpers
 from tests.helpers import guards, load_config, market, open_order, pair_spec, state
 
@@ -496,6 +497,117 @@ class RecoveryTest(unittest.TestCase):
         decision = self.decide(current, 30.0)
         self.assertEqual(decision.state, "HALTED")
         self.assertEqual(decision.action, SELL)
+
+
+class 時間切れの手仕舞いTest(unittest.TestCase):
+    """成行の手仕舞いが残した端数で、時間切れが繰り返し発火しないこと。
+
+    2026-09-02 15:19 に保有上限を超えた建玉を成行で手仕舞ったところ、
+    `_exit_all` の切り捨てで 0.0001 が売れ残った。端数を建玉として数え続けた
+    ため `opened_at` が 2026-08-21 のまま固定され、新しく買った建玉が
+    その回のうちに時間切れで投げられた（09-02〜09-04 に22往復、
+    taker 手数料を含めて約 -6,100 JPY）。
+    """
+
+    UNIT = Decimal("0.0001")
+    EXIT_HISTORY = [
+        {
+            "id": "buy-1",
+            "pair": "btc_jpy",
+            "side": "buy",
+            "type": "limit",
+            "amount": 0.0032,
+            "fillPrice": 12438813,
+            "feeQuote": 0,
+            "filledAt": "2026-08-21T00:00:00.000Z",
+        },
+        {
+            "id": "exit-1",
+            "pair": "btc_jpy",
+            "side": "sell",
+            "type": "market",
+            "amount": 0.0031,
+            "fillPrice": 12415315,
+            "feeQuote": 46.2,
+            "filledAt": "2026-09-02T06:19:00.000Z",
+        },
+    ]
+    NEW_BUY = {
+        "id": "buy-2",
+        "pair": "btc_jpy",
+        "side": "buy",
+        "type": "limit",
+        "amount": 0.0032,
+        "fillPrice": 12400000,
+        "feeQuote": 0,
+        "filledAt": "2026-09-04T00:00:00.000Z",
+    }
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def derive(self, now, jpy, btc, position, history):
+        return derive_state(
+            config=self.config,
+            now=now,
+            last_price=Decimal("12415315"),
+            assets_rows=[
+                {"asset": "jpy", "total": jpy, "locked": 0, "available": jpy},
+                {"asset": "btc", "total": btc, "locked": 0, "available": btc},
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": position,
+                        "avgCost": 12400000,
+                        "currentPrice": 12415315,
+                        "realizedPnl": -6100,
+                        "unrealizedPnl": 0,
+                        "totalPnl": -6100,
+                    }
+                }
+            },
+            order_rows=[],
+            history_rows=history,
+            unit_amount=self.UNIT,
+        )
+
+    def test_端数だけ残った回はIDLEから始まる(self):
+        now = helpers.at("2026-09-04T09:10:00+09:00")
+        current = self.derive(
+            now=now,
+            jpy=960000,
+            btc=0.0000999999999999967,
+            position=0.0001,
+            history=self.EXIT_HISTORY,
+        )
+        self.assertEqual(current.position.amount, Decimal(0))
+        self.assertIsNone(current.position.age_days)
+
+        decision = decide(self.config, guards(), market(), pair_spec(), current, now)
+        self.assertEqual(decision.state, "IDLE")
+        self.assertEqual(decision.action, BUY)
+        self.assertEqual(decision.place[0].label, "step-1")
+
+    def test_買った直後の回で時間切れが発火しない(self):
+        now = helpers.at("2026-09-04T09:10:00+09:00")
+        current = self.derive(
+            now=now,
+            jpy=920000,
+            btc=0.0032999999999999967,
+            position=0.0033,
+            history=[*self.EXIT_HISTORY, self.NEW_BUY],
+        )
+        self.assertEqual(
+            current.position.opened_at, helpers.at("2026-09-04T09:00:00+09:00")
+        )
+        self.assertLess(current.position.age_days, self.config.time_stop_days)
+
+        decision = decide(self.config, guards(), market(), pair_spec(), current, now)
+        self.assertEqual(decision.state, "LADDERING")
+        self.assertNotIn("上限を超えた", decision.reason)
+        self.assertTrue(all(o.order_type == "limit" for o in decision.place))
 
 
 class StateNameTest(unittest.TestCase):
