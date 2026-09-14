@@ -151,6 +151,19 @@ class SimulateTest(unittest.TestCase):
         self.assertEqual(reached["exit_kind"], "take_profit")
         self.assertLess(forced["pnl_jpy"], reached["pnl_jpy"])
 
+    def test_利確は指値の価格で約定する(self):
+        """15分の間に飛んでも、板の指値はその価格で約定する。
+
+        観測価格で数えると、大きく動いた回だけ不当に儲かったことになり、
+        幅を広げるほど得に見える。実績（毎回きっかり +0.45%）と合わなくなる。
+        """
+        points = [point(60, int(self.avg * Decimal("1.05")))]  # いきなり +5%
+        result = self.run_with(points, Decimal("0.6"))
+        self.assertEqual(result["exit_kind"], "take_profit")
+        # 0.5 を +0.3%、残り 0.5 を +0.6% で売ったぶんだけ
+        expected = self.avg * self.round.amount * Decimal("0.0045")
+        self.assertAlmostEqual(float(result["pnl_jpy"]), float(expected), places=4)
+
     def test_価格の記録が無ければ判定しない(self):
         """止まっていた区間を、都合よく埋めない。"""
         self.assertFalse(self.run_with([], Decimal("0.6"))["decided"])
