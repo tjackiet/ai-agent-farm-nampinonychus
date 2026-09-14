@@ -145,11 +145,16 @@ class VetoStreak:
     `error` は直近の回の `veto.error`。入っていれば**諮れていない**（認証切れなど、
     直すべき異常）。無ければ LLM が意図して見送っている。運用者の対応が変わるため、
     文面で区別する。
+
+    `extended` は、この回そのものが見送りだったか。数は諮った回だけで増えるので、
+    諮らない回が続くと数が止まる。止まった数が発報の点に当たっていると、同じ通知が
+    毎回出る。**知らせるのは数が伸びた回だけにする。**
     """
 
     count: int
     error: str | None = None
     reason: str = ""
+    extended: bool = False
 
 
 def veto_streak(records: Sequence[dict]) -> VetoStreak:
@@ -162,6 +167,8 @@ def veto_streak(records: Sequence[dict]) -> VetoStreak:
     count = 0
     error: str | None = None
     reason = ""
+    latest = records[-1].get("veto") if records else None
+    extended = isinstance(latest, dict) and bool(latest.get("stopped"))
     for record in reversed(records):
         veto = record.get("veto")
         if not isinstance(veto, dict):
@@ -174,7 +181,7 @@ def veto_streak(records: Sequence[dict]) -> VetoStreak:
             last_reason = veto.get("reason")
             reason = last_reason if isinstance(last_reason, str) else ""
         count += 1
-    return VetoStreak(count=count, error=error, reason=reason)
+    return VetoStreak(count=count, error=error, reason=reason, extended=extended)
 
 
 def veto_streak_line(streak: VetoStreak) -> str:
@@ -284,7 +291,7 @@ def build_messages(
 
     if enabled.get("veto_streak"):
         stopped = veto_streak(records)
-        if streak_due(
+        if stopped.extended and streak_due(
             stopped.count, config.notify_veto_streak, config.notify_streak_repeat_every
         ):
             messages.append(veto_streak_line(stopped))
