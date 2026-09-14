@@ -72,6 +72,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `.github/workflows/` | テスト（`tests.yml`）とセキュリティ点検（`security.yml`）     |
 | `LICENSE`         | MIT License                                                      |
 | `scripts/export_agent_package.py` | 表示用パッケージ（`*.agent.json`）のエクスポート処理 |
+| `scripts/measure_take_profit.py` | 利確幅を決めるための測定（読み取りのみ。発注しない） |
 | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ。**生成物であり手で編集しない** |
 | `personality.md`  | 性格・行動原則・話し方                                           |
 | `strategy.md`     | 判断ロジック。買い下がりの階段と決済条件                         |
