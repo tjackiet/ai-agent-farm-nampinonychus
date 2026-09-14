@@ -79,6 +79,27 @@ class LoadTest(unittest.TestCase):
             config_module.fingerprint(unrelated), config_module.fingerprint(config.raw)
         )
 
+    def test_通知の設定を読める(self):
+        """見送りの連続と繰り返し間隔は、戦略やリスクの値ではなく通知の設定。"""
+        config = load_config()
+        self.assertTrue(config.notify_on["veto_streak"])
+        self.assertEqual(config.notify_veto_streak, 4)
+        self.assertEqual(config.notify_streak_repeat_every, 24)
+
+    def test_通知の値が欠けていれば落とす(self):
+        for key in ("veto_streak", "streak_repeat_every"):
+            with self.subTest(key=key):
+                raw = yaml.safe_load(Path("agent.yaml").read_text(encoding="utf-8"))
+                del raw["notify"][key]
+                with tempfile.NamedTemporaryFile(
+                    "w", suffix=".yaml", encoding="utf-8", delete=False
+                ) as handle:
+                    yaml.safe_dump(raw, handle, allow_unicode=True)
+                    path = handle.name
+                with self.assertRaises(ConfigError) as caught:
+                    load(path)
+                self.assertIn(f"notify.{key}", str(caught.exception))
+
     def test_禁止コマンドが定義されている(self):
         config = load_config()
         for command in ("bitbank trade create-order", "bitbank trade cancel-order", "bitbank paper reset"):
