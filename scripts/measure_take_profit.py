@@ -167,6 +167,12 @@ def simulate(
 
     1段目で `tp1_ratio` を売り、残りは 2段目か保有上限のどちらか早い方で出る。
     指値は maker 0%、保有上限の手仕舞いだけ成行（taker）とする。
+
+    **利確は指値の価格ちょうどで約定したものとして数える。** 板に置いた指値は
+    その価格で約定するのであって、そのとき市場がどこまで飛んでいたかは手取りに
+    関係しない。観測価格で数えると、15分の間に大きく動いた回だけ不当に儲かった
+    ことになる（実績は毎回きっかり +0.45% で、指値価格での約定を示している）。
+    成行になる保有上限のときだけ、そのときの観測価格を使う。
     """
     avg = round_.avg_cost_jpy
     start = last_buy_at(round_, trades)
@@ -183,16 +189,18 @@ def simulate(
     remaining = amount
     exit_kind = "time_stop"
 
-    first = first_at_or_above(seen, avg * (Decimal(1) + tp1_pct / Decimal(100)))
+    tp1_price = avg * (Decimal(1) + tp1_pct / Decimal(100))
+    first = first_at_or_above(seen, tp1_price)
     if first is not None:
         sold = amount * tp1_ratio
-        proceeds += sold * first[1]
+        proceeds += sold * tp1_price  # 指値の価格で約定する
         remaining -= sold
         seen = [p for p in seen if p[0] >= first[0]]
 
-    second = first_at_or_above(seen, avg * (Decimal(1) + tp2_pct / Decimal(100)))
+    tp2_price = avg * (Decimal(1) + tp2_pct / Decimal(100))
+    second = first_at_or_above(seen, tp2_price)
     if second is not None:
-        proceeds += remaining * second[1]
+        proceeds += remaining * tp2_price  # 同上
         remaining = Decimal(0)
         exit_kind = "take_profit"
     else:
@@ -256,7 +264,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--trades", default=None, help="約定履歴の JSON（省略時は CLI）")
     parser.add_argument(
         "--levels",
-        default="0.3,0.5,0.8,1.0,1.5,2.0",
+        default="0.3,0.6,0.8,1.0,1.5,2.0",
         help="測る上昇幅（%%）。カンマ区切り",
     )
     parser.add_argument("--windows", default="24,72", help="測る時間（h）。カンマ区切り")
@@ -332,6 +340,34 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print("\n=== 3. 2段目の利確幅を変えていたら ===")
     print(f"  1段目は {float(tp1_pct):.1f}%（{float(tp1_ratio):.0%}）のまま、2段目だけ動かした場合")
+
+    # 検算。いまの設定で回して実績と合わなければ、模型が実際の約定を再現できて
+    # いない。合わない数字で戦略を決めないため、先に出して警告する。
+    tp2_now = Decimal(str(tp_levels[-1].gain_pct))
+    usable = [
+        (r, x)
+        for r, x in (
+            (
+                r,
+                simulate(
+                    r, trades, points, tp1_pct, tp1_ratio, tp2_now, cfg.time_stop_days, taker
+                ),
+            )
+            for r in closed
+        )
+        if x["decided"]
+    ]
+    if usable:
+        est = sum((x["pnl_jpy"] for _, x in usable), Decimal(0))
+        real = sum((r.realized_pnl_jpy for r, _ in usable), Decimal(0))
+        print(
+            f"  検算 いまの +{float(tp2_now):.1f}% で回すと {_fmt_jpy(est)} JPY / "
+            f"実績 {_fmt_jpy(real)} JPY（同じ {len(usable)} ラウンド）"
+        )
+        gap = abs(est - real)
+        if gap > max(abs(real) * Decimal("0.05"), Decimal(1)):
+            print("  ※ 実績と合いません。模型が実際の約定を再現できていないので、")
+            print("     下の表は判断に使わないでください。")
     print(
         "  "
         + _pad("2段目", 7, "<")
