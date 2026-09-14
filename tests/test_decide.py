@@ -82,7 +82,13 @@ class BuyTest(unittest.TestCase):
         self.assertEqual(decision.state, "IDLE")
         order = decision.place[0]
         self.assertEqual(order.price, Decimal("14925000"))
-        self.assertEqual(order.amount, Decimal("0.0053"))
+        # 数量は 1段目の予算から決まる。予算を変えるたびに書き換えないよう計算する。
+        budget = Decimal(str(self.config.ladder_steps[0].budget_jpy))
+        unit = pair_spec().unit_amount
+        expected = (budget / order.price / unit).to_integral_value(
+            rounding=ROUND_FLOOR
+        ) * unit
+        self.assertEqual(order.amount, expected)
         self.assertEqual(order.label, "step-1")
 
     def test_アンカー以上では追わない(self):
@@ -151,19 +157,30 @@ class BuyTest(unittest.TestCase):
             pending_sell=take_profit_orders("0.0054", "14550000"),
         )
 
+    def _cash_floor(self) -> Decimal:
+        """常に維持する現金。手をつけられない額（risk-policy.md）。"""
+        return Decimal(str(self.config.initial_jpy)) * Decimal(
+            str(self.config.min_cash_reserve_ratio)
+        )
+
     def test_現金の下限を割る買いはしない(self):
-        """常に維持する現金（初期資金の20%）は使わない。"""
-        decision = self.decide(self._laddering("200000"))
+        """常に維持する現金は使わない。使える額が 0 なら発注しない。"""
+        decision = self.decide(self._laddering(str(self._cash_floor())))
         self.assertEqual(decision.action, HOLD)
         self.assertIn("予算が残っていない", decision.reason)
 
     def test_残り予算に合わせて数量を減らす(self):
-        decision = self.decide(self._laddering("260000"))
+        usable = Decimal("60000")  # 段の予算より小さい額しか使えない状態にする
+        decision = self.decide(self._laddering(str(self._cash_floor() + usable)))
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.place[0].label, "step-2")
-        # 使えるのは 260,000 - 200,000 = 60,000 JPY のみ
-        self.assertEqual(decision.place[0].price, Decimal("14477250"))
-        self.assertEqual(decision.place[0].amount, Decimal("0.0041"))
+        order = decision.place[0]
+        self.assertEqual(order.price, Decimal("14477250"))
+        unit = pair_spec().unit_amount
+        self.assertEqual(
+            order.amount,
+            (usable / order.price / unit).to_integral_value(rounding=ROUND_FLOOR) * unit,
+        )
 
     def test_直前の段が約定するまで次の段を出さない(self):
         """古い約定を基準にすると、段の間隔が設計より詰まる。"""
@@ -194,11 +211,13 @@ class BuyTest(unittest.TestCase):
             position="0.0455",
             avg_cost="13186813",
             step=4,
-            used_budget="600000",
+            used_budget=str(int(load_config().ladder_total_budget_jpy)),
             last_fill_price="12871512",
             last_fill_at="2026-08-17T00:00:00+09:00",
             cooldown_until="2026-08-17T06:00:00+09:00",
-            cash="400000",
+            cash=str(
+                int(load_config().initial_jpy - load_config().ladder_total_budget_jpy)
+            ),
             pending_sell=take_profit_orders("0.0455", "13186813"),
         )
         decision = self.decide(current)
@@ -279,11 +298,14 @@ class RepriceTest(unittest.TestCase):
 
     def test_予算が足りなければ取り消さない(self):
         """置き直せないなら、いまの注文を残す。取り消しただけで終わらせない。"""
-        # 現金の下限（初期資金の20%）に阻まれる状態。
-        # 取り消しで戻るぶんを足しても予算が出ない。
+        # 現金の下限に阻まれる状態。取り消しで戻るぶんを足しても予算が出ない。
+        floor_cash = Decimal(str(self.config.initial_jpy)) * Decimal(
+            str(self.config.min_cash_reserve_ratio)
+        )
         current = state(
             cash="1000000",
-            cash_available="120000",
+            # 取り消しで戻る 79,380 JPY を足しても、下限まで 620 JPY 足りない。
+            cash_available=str(floor_cash - Decimal("80000")),
             pending_buy=[open_order("o1", "buy", "14700000", "0.0054")],
         )
         decision = self.decide(current)
@@ -292,7 +314,10 @@ class RepriceTest(unittest.TestCase):
     def test_置き直した数量は予算に収まる(self):
         current = state(pending_buy=[open_order("o1", "buy", "14700000", "0.0054")])
         order = self.decide(current).place[0]
-        self.assertLessEqual(order.price * order.amount, Decimal(80000))
+        self.assertLessEqual(
+            order.price * order.amount,
+            Decimal(str(self.config.ladder_steps[0].budget_jpy)),
+        )
 
 
 class SellTest(unittest.TestCase):
