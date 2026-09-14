@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from nampinonychus import config as config_module
 from nampinonychus.config import ConfigError, load
 from tests.helpers import load_config
 
@@ -45,6 +46,37 @@ class LoadTest(unittest.TestCase):
         config = load_config()
         self.assertLessEqual(
             config.ladder_total_budget_jpy, config.initial_jpy * config.max_position_ratio
+        )
+
+    def test_戦略を変えると指紋が変わる(self):
+        """ペーパーで値を試すと、同じ口座に違う設定の結果が並ぶ。
+
+        どの回がどの設定だったかが判断ログに残らないと、あとの測定が
+        設定違いのラウンドを平均した数字を出す。
+        """
+        import copy
+
+        config = load_config()
+        base = config_module.fingerprint(config.raw)
+
+        changed = copy.deepcopy(config.raw)
+        changed["strategy"]["exit"]["take_profit"][1]["gain_pct"] = 1.5
+        self.assertNotEqual(config_module.fingerprint(changed), base)
+
+        risk = copy.deepcopy(config.raw)
+        risk["risk"]["max_position_ratio"] = 0.9
+        self.assertNotEqual(config_module.fingerprint(risk), base)
+
+    def test_戦略に関係ない設定では指紋が変わらない(self):
+        """通知やモデルを変えただけで、別の戦略として数えない。"""
+        import copy
+
+        config = load_config()
+        unrelated = copy.deepcopy(config.raw)
+        unrelated["notify"]["error_streak"] = 99
+        unrelated["narrate"]["effort"] = "low"
+        self.assertEqual(
+            config_module.fingerprint(unrelated), config_module.fingerprint(config.raw)
         )
 
     def test_禁止コマンドが定義されている(self):

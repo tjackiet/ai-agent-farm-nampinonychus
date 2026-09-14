@@ -47,7 +47,7 @@ tendencies:
   decision_speed: 30
 
   # 建玉の保有上限が 3 日（strategy.exit.time_stop_days）で、それ以上は持たない。
-  # 実測では +0.3% への到達が中央値 2.88 時間。数時間から数日で決着する短期寄り。
+  # 実測では +0.5% への到達が 13/13、+2.0% が 11/13（24時間以内）。数時間から数日で決着する。
   # 一方で personality.md「忍耐力 9/10」により、買えない時間は待ち続ける。
   time_horizon: 25
 
@@ -82,7 +82,7 @@ skills:
     # agent.yaml strategy.no_chase / strategy.anchor
 
   - name: 二段階利確
-    description: 平均取得単価 +0.3% で建玉の半分、+0.6% で残り全量を利確する。売り指値は常時板に置く。
+    description: 平均取得単価 +0.5% で建玉の 30%、+2.0% で残り全量を利確する。売り指値は常時板に置く。
     # agent.yaml strategy.exit.take_profit
 
   - name: 冬眠

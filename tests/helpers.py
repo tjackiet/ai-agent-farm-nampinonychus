@@ -130,6 +130,36 @@ def state(
     )
 
 
+def take_profit_orders(
+    position: str,
+    avg_cost: str,
+    *,
+    config: config_module.Config | None = None,
+    spec: PairSpec | None = None,
+) -> list[OpenOrder]:
+    """いまの設定どおりの利確売り指値。板に置かれている状態を作るために使う。
+
+    利確の値を変えると、板に置くべき指値の価格も数量も変わる。テストに数字を
+    直接書くと、`agent.yaml` を触るたびに関係のないテストが落ちる。設定から
+    組み立てて、**そのテストが見たい条件だけ**が効くようにする。
+    """
+    from nampinonychus import decide as decide_module
+
+    conf = config if config is not None else load_config()
+    pair = spec if spec is not None else pair_spec()
+    holder = state(position=position, avg_cost=avg_cost, step=1)
+    return [
+        OpenOrder(
+            id=f"s{index + 1}",
+            side="sell",
+            price=order.price,
+            amount=order.amount,
+            created_at=at("2026-08-18T00:00:00+09:00"),
+        )
+        for index, order in enumerate(decide_module.desired_sell_orders(conf, pair, holder))
+    ]
+
+
 def open_order(
     order_id: str, side: str, price: str, amount: str, created_at: str = "2026-08-18T00:00:00+09:00"
 ) -> OpenOrder:

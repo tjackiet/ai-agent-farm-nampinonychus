@@ -133,6 +133,21 @@ class CycleTest(unittest.TestCase):
         self.assertEqual(records[0]["action"], "HOLD")
         self.assertTrue(records[0]["sources"])
 
+    def test_判断ログにどの設定で動いたかを残す(self):
+        """値を変えて試す前後で、ラウンドを混ぜないための目印。
+
+        判断ログに残らないと、設定を変えたあとの測定が別の戦略を平均する。
+        """
+        from nampinonychus import config as config_module
+
+        self.run_cycle(FakeCli(default_responses()))
+        record = self.read_journal()[-1]
+        config = load_config()
+        self.assertEqual(record["config"]["version"], config.version)
+        self.assertEqual(
+            record["config"]["strategy"], config_module.fingerprint(config.raw)
+        )
+
     def test_status_yamlを書き出す(self):
         self.run_cycle(FakeCli(default_responses()))
         document = yaml.safe_load((self.root / "var" / "status.yaml").read_text(encoding="utf-8"))

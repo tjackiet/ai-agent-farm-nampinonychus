@@ -25,7 +25,7 @@ schema_version: 1
 # README やコメントの修正など、判断へ影響しない変更では更新しません。
 # バージョンは強さや運用成績を表しません。
 # 文字列で持ちます（1.10 と 1.1 を別のバージョンとして区別するため）。
-version: "1.0"
+version: "1.1"
 
 agent:
   id: nampinonychus
@@ -156,9 +156,13 @@ strategy:
     order_type: limit
     # 平均取得単価からの上昇率。指値の maker 手数料は 0% のため、
     # 入りも出も指値なら往復コストは 0（成行の手仕舞いのみ taker 0.1%）。
+    # 実データ（2026-08-19〜09-14、13ラウンド）の到達率で決めた。
+    # +0.5% は 13/13 が24時間以内に到達、+2.0% は 11/13。
+    # 届かない 2 回は保有上限の成行になるが、その損を含めても概算は
+    # +0.3/+0.6 の 7,593 JPY に対し 12,027 JPY（scripts/measure_take_profit.py）。
     take_profit:
-      - { level: 1, gain_pct: 0.3, sell_ratio: 0.5 }
-      - { level: 2, gain_pct: 0.6, sell_ratio: 1.0 }
+      - { level: 1, gain_pct: 0.5, sell_ratio: 0.3 }
+      - { level: 2, gain_pct: 2.0, sell_ratio: 1.0 }
     time_stop_days: 3 # 建玉の保有上限。超過で全量手仕舞い。
 
   no_chase:
