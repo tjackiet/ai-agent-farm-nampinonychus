@@ -261,8 +261,11 @@ notify:
     order: true # 発注・取消した
     state_change: true # 状態が変わった（IDLE → LADDERING など）
     error: true # 観測や発注に続けて失敗した
+    veto_streak: true # 拒否権で買いを見送った回が続いた（諮れていない回を含む）
 
   error_streak: 3 # 何回続けて失敗したら知らせるか（risk-policy.md の人間介入の基準に合わせる）
+  veto_streak: 4 # 拒否権で何回続けて見送ったら知らせるか（諮るのは買いを出す回だけ）
+  streak_repeat_every: 24 # 閾値に達したあと、何回ごとに繰り返すか（15分間隔なら約6時間ごと）
   report_at: ["09:00", "21:00"] # 半日ごとの振り返りを送る時刻
 
 memory:

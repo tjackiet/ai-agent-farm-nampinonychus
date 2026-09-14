@@ -124,7 +124,11 @@ def order_lines(orders: Sequence[dict]) -> list[str]:
 
 
 def error_streak(records: Sequence[dict]) -> int:
-    """直近で何回続けて失敗したか。"""
+    """直近で何回続けて失敗したか。
+
+    数えるのは観測と発注の失敗（`record["error"]`）だけ。拒否権を諮れなかった
+    失敗は `veto.error` にあり、意味が違うのでここには混ぜない（`veto_streak`）。
+    """
     streak = 0
     for record in reversed(records):
         if record.get("error"):
@@ -132,6 +136,68 @@ def error_streak(records: Sequence[dict]) -> int:
         else:
             break
     return streak
+
+
+@dataclass(frozen=True)
+class VetoStreak:
+    """拒否権で買いを見送った回が、直近から何回続いているか。
+
+    `error` は直近の回の `veto.error`。入っていれば**諮れていない**（認証切れなど、
+    直すべき異常）。無ければ LLM が意図して見送っている。運用者の対応が変わるため、
+    文面で区別する。
+    """
+
+    count: int
+    error: str | None = None
+    reason: str = ""
+
+
+def veto_streak(records: Sequence[dict]) -> VetoStreak:
+    """直近から連続して拒否権で見送った回を数える。
+
+    通した回（`veto.stopped` が false）で切れる。諮っていない回（`veto` が無い回）は
+    読み飛ばす。**諮るのは買いを出す回だけ**なので、間に挟まる HOLD で切っては
+    見送りが続いていることが分からない。
+    """
+    count = 0
+    error: str | None = None
+    reason = ""
+    for record in reversed(records):
+        veto = record.get("veto")
+        if not isinstance(veto, dict):
+            continue
+        if not veto.get("stopped"):
+            break
+        if count == 0:
+            last_error = veto.get("error")
+            error = last_error if isinstance(last_error, str) and last_error else None
+            last_reason = veto.get("reason")
+            reason = last_reason if isinstance(last_reason, str) else ""
+        count += 1
+    return VetoStreak(count=count, error=error, reason=reason)
+
+
+def veto_streak_line(streak: VetoStreak) -> str:
+    """見送りが続いていることを1行で。"""
+    if streak.error is not None:
+        return (
+            f"{streak.count}回続けて拒否権を諮れず、買いを見送っています: {streak.error}"
+        )
+    reason = streak.reason or "理由は記録にありません"
+    return f"{streak.count}回続けて LLM の判断で買いを見送っています: {reason}"
+
+
+def streak_due(streak: int, threshold: int, repeat_every: int) -> bool:
+    """閾値に達した回と、そのあとは `repeat_every` 回ごとにだけ真。
+
+    閾値を超えている間ずっと送ると、15分ごとの運用では1日 96 通になる。
+    11 日続いた凍結ではおよそ 1,000 通ぶんに相当した。
+    """
+    if streak <= 0 or streak < threshold:
+        return False
+    if repeat_every <= 0:
+        return streak == threshold
+    return (streak - threshold) % repeat_every == 0
 
 
 def crossed_report_times(
@@ -210,9 +276,18 @@ def build_messages(
 
     if enabled.get("error"):
         streak = error_streak(records)
-        if streak >= config.notify_error_streak:
+        if streak_due(
+            streak, config.notify_error_streak, config.notify_streak_repeat_every
+        ):
             last = records[-1].get("error") if records else ""
             messages.append(f"{streak}回続けて失敗しています: {last}")
+
+    if enabled.get("veto_streak"):
+        stopped = veto_streak(records)
+        if streak_due(
+            stopped.count, config.notify_veto_streak, config.notify_streak_repeat_every
+        ):
+            messages.append(veto_streak_line(stopped))
 
     return messages
 
