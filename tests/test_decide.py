@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import unittest
 from decimal import ROUND_FLOOR, Decimal
 
@@ -635,6 +636,205 @@ class 時間切れの手仕舞いTest(unittest.TestCase):
         self.assertEqual(decision.state, "LADDERING")
         self.assertNotIn("上限を超えた", decision.reason)
         self.assertTrue(all(o.order_type == "limit" for o in decision.place))
+
+
+class 利確でロックされた建玉Test(unittest.TestCase):
+    """利確の売り指値が建玉の全量を押さえていても、建玉として扱うこと。
+
+    2026-09-14 21:06 に 0.0091 を買い、tp-1 0.0027 と tp-2 0.0064 を置いた。
+    `available` が 0 になったのを建玉ゼロと読み、21:55 に売りを2本抱えたまま
+    `LADDERING → IDLE` として1段目の買いを新規に出した。さらに
+    `max_position_ratio` の判定に取得原価が載らず、ロックされている量が
+    変わるたびに tp-2 の数量が 0.0091 / 0.0064 と振れて取消と再発注を
+    繰り返した（22:41〜23:11）。
+    """
+
+    UNIT = Decimal("0.0001")
+    FILLED_AT = "2026-09-14T12:06:00.000Z"  # 21:06 JST
+
+    def setUp(self) -> None:
+        self.config = load_config()
+
+    def sells(self, position: str, avg_cost: str) -> list[dict]:
+        """いまの設定どおりの利確売り指値を、`paper active-orders` の形で。"""
+        return [
+            {
+                "id": o.id,
+                "pair": "btc_jpy",
+                "side": "sell",
+                "type": "limit",
+                "price": float(o.price),
+                "amount": float(o.amount),
+                "createdAt": self.FILLED_AT,
+            }
+            for o in take_profit_orders(position, avg_cost)
+        ]
+
+    def derive(self, now, *, jpy, position, avg_cost, available, order_rows, config=None):
+        return derive_state(
+            config=config or self.config,
+            now=now,
+            last_price=Decimal("12050000"),
+            assets_rows=[
+                {"asset": "jpy", "total": jpy, "locked": 0, "available": jpy},
+                {
+                    "asset": "btc",
+                    "total": float(position),
+                    "locked": float(Decimal(position) - Decimal(available)),
+                    "available": float(available),
+                },
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": float(position),
+                        "avgCost": float(avg_cost),
+                        "currentPrice": 12050000,
+                        "realizedPnl": 0,
+                        "unrealizedPnl": 0,
+                        "totalPnl": 0,
+                    }
+                }
+            },
+            order_rows=order_rows,
+            history_rows=[
+                {
+                    "id": "buy-1",
+                    "pair": "btc_jpy",
+                    "side": "buy",
+                    "type": "limit",
+                    "amount": float(position),
+                    "fillPrice": float(avg_cost),
+                    "feeQuote": 0,
+                    "filledAt": self.FILLED_AT,
+                }
+            ],
+            unit_amount=self.UNIT,
+        )
+
+    def test_全量ロック中でもIDLEに戻らず1段目を出さない(self):
+        """21:55 の回。クールダウンは明けているので、出すなら2段目。"""
+        now = helpers.at("2026-09-14T21:55:00+09:00")
+        current = self.derive(
+            now,
+            jpy=890350,
+            position="0.0091",
+            avg_cost="12049450",
+            available="0",
+            order_rows=self.sells("0.0091", "12049450"),
+        )
+        self.assertEqual(current.position.amount, Decimal("0.0091"))
+        self.assertEqual(state_name(self.config, current), "LADDERING")
+
+        decision = decide(self.config, guards(), market(), pair_spec(), current, now)
+        self.assertEqual(decision.state, "LADDERING")
+        self.assertEqual(decision.cancel, ())
+        self.assertNotIn("step-1", [o.label for o in decision.place])
+        self.assertEqual(decision.action, BUY)
+        self.assertEqual(decision.place[0].label, "step-2")
+
+    def test_ロック中でも取得原価が建玉上限の判定に載る(self):
+        """`max_position_ratio` は `cost_basis_jpy` を見る。ロック中に 0 になると
+        現金比率だけが歯止めになる。階段の総予算を外し、建玉上限だけが効く
+        条件で、残り枠ぶんだけの数量になることを確かめる。
+        """
+        config = dataclasses.replace(self.config, ladder_total_budget_jpy=2_000_000)
+        now = helpers.at("2026-09-14T21:55:00+09:00")
+        # 取得原価 780,000 JPY。上限 1,000,000 × 0.80 = 800,000 まで残り 20,000。
+        current = self.derive(
+            now,
+            jpy=300000,
+            position="0.0650",
+            avg_cost="12000000",
+            available="0",
+            order_rows=self.sells("0.0650", "12000000"),
+            config=config,
+        )
+        self.assertEqual(current.position.cost_basis_jpy, Decimal("780000"))
+
+        decision = decide(config, guards(), market(), pair_spec(), current, now)
+        self.assertEqual(decision.action, BUY)
+        self.assertEqual(decision.place[0].label, "step-2")
+        order = decision.place[0]
+        limit = Decimal(str(config.initial_jpy)) * Decimal(str(config.max_position_ratio))
+        remaining = limit - current.position.cost_basis_jpy
+        self.assertEqual(remaining, Decimal("20000"))
+        self.assertLessEqual(order.price * order.amount, remaining)
+        self.assertGreater(order.price * (order.amount + self.UNIT), remaining)
+
+    def test_ロック状況が変わっても利確の売り指値は変わらない(self):
+        """22:41〜23:11 の往復。板の売りを全部取り消してから出し直すので、
+        ロックされている量が違っても望む指値は同じで、置き直しは起きない。
+        """
+        now = helpers.at("2026-09-14T22:41:00+09:00")
+        wanted = self.sells("0.0091", "12049450")
+        both = tuple(Decimal(str(o["amount"])) for o in wanted)
+        cases = {
+            "全量ロック": ("0", wanted),
+            "tp-2だけ": (str(both[0]), wanted[1:]),
+            "ロックなし": ("0.0091", []),
+        }
+        desired_by_case = {}
+        for label, (available, orders) in cases.items():
+            current = self.derive(
+                now,
+                jpy=890350,
+                position="0.0091",
+                avg_cost="12049450",
+                available=available,
+                order_rows=orders,
+            )
+            desired_by_case[label] = desired_sell_orders(self.config, pair_spec(), current)
+        self.assertEqual(len(set(desired_by_case.values())), 1, desired_by_case)
+        self.assertEqual(
+            sum((o.amount for o in desired_by_case["全量ロック"]), Decimal(0)),
+            Decimal("0.0091"),
+        )
+
+        # 板が望みどおりなら、取消も再発注もしない。
+        current = self.derive(
+            now,
+            jpy=890350,
+            position="0.0091",
+            avg_cost="12049450",
+            available="0",
+            order_rows=wanted,
+        )
+        decision = decide(self.config, guards(), market(), pair_spec(), current, now)
+        self.assertEqual(decision.cancel, ())
+        self.assertFalse(any(o.side == "sell" for o in decision.place))
+
+    def test_取り消す売り指値の解放ぶんを含めて発注数量を決める(self):
+        """時間切れの手仕舞い。売りを全部取り消してから、全量を成行で売る。"""
+        current = state(
+            position="0.0091",
+            avg_cost="12049450",
+            step=1,
+            cash="890350",
+            age_days=3.5,
+            base_available="0",
+            pending_sell=take_profit_orders("0.0091", "12049450"),
+        )
+        decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
+        self.assertEqual(decision.action, SELL)
+        self.assertEqual(set(decision.cancel), {"s1", "s2"})
+        self.assertEqual(decision.place[0].order_type, "market")
+        self.assertEqual(decision.place[0].amount, Decimal("0.0091"))
+
+    def test_解放ぶんが無ければロックされていない量までしか売らない(self):
+        """取り消す注文がないのに `available` を超える売りは、CLI に弾かれる。"""
+        current = state(
+            position="0.0091",
+            avg_cost="12049450",
+            step=1,
+            cash="890350",
+            age_days=3.5,
+            base_available="0.0027",
+        )
+        decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
+        self.assertEqual(decision.action, SELL)
+        self.assertEqual(decision.place[0].amount, Decimal("0.0027"))
 
 
 class StateNameTest(unittest.TestCase):

@@ -310,9 +310,9 @@ def derive_ladder(
 
 
 def sellable(
-    position: Decimal, base_available: Decimal, unit: Decimal | None
+    position: Decimal, balance: Decimal, unit: Decimal | None
 ) -> Decimal:
-    """実際に売りに出せる数量。
+    """約定履歴の建玉と口座残高の少ないほうを、取引単位へ切り捨てた数量。
 
     建玉には出どころが2つある。`paper pnl` は約定履歴から計算した値を返し、
     `paper assets` は口座が持つ残高を返す。後者は浮動小数点で積まれるため、
@@ -322,8 +322,19 @@ def sellable(
 
     さらに CLI は取引単位の倍数でない数量を丸めずに拒否する。切り捨てた
     結果が1単位に満たないなら、それは売れない量であり、建玉として数えない。
+
+    `balance` に何を渡すかで意味が変わる。
+
+    - `total`（ロックを引く前）を渡せば「いくら持っているか」になる。
+      建玉の数量はこちらで決める（`derive`）。
+    - `available`（ロックを引いた後）を渡せば「いま新しく発注できるのは
+      いくらか」になる（`sellable_now`）。
+
+    利確の売り指値は建玉の全量を押さえるので、置いた瞬間に `available` は
+    0 になる。それを建玉の数量に流用すると、建玉を持ったまま「建玉なし」と
+    判定して階段を最初からやり直してしまう（2026-09-14 に発生）。
     """
-    held = min(position, base_available)
+    held = min(position, balance)
     if unit is None or unit <= 0:
         return held if held > DUST else Decimal(0)
     held = (held / unit).to_integral_value(rounding=ROUND_FLOOR) * unit
@@ -347,6 +358,21 @@ def is_flat(position: Decimal, unit: Decimal | None) -> bool:
     if unit is None or unit <= 0:
         return position <= DUST
     return sellable(position, position - DUST, unit) <= 0
+
+
+def sellable_now(
+    state: State, unit: Decimal | None, freed: Decimal = Decimal(0)
+) -> Decimal:
+    """いま新しく売りに出せる数量。
+
+    建玉のうち、売り指値でロックされていない量。`freed` は同じ回で取り消す
+    売り指値が解放するぶん。`orders.execute` は取消を先に流すので、発注の
+    時点では解放されている（現金について `decide._step_budget` が `freed_jpy`
+    でしているのと同じ考えかた）。
+    """
+    return sellable(
+        state.position.amount, state.account.base_available + freed, unit
+    )
 
 
 def derive_position(
@@ -406,7 +432,9 @@ def derive(
 
     unit = to_decimal(unit_amount) if unit_amount is not None else None
     raw_position = to_decimal(pnl_row["position"]) if pnl_row else Decimal(0)
-    held = sellable(raw_position, base_available, unit)
+    # 建玉の数量はロックを引く前の残高で決める。売り指値で押さえている量も
+    # 持っていることに変わりはない。発注できる量は `sellable_now` で別に求める。
+    held = sellable(raw_position, base_total, unit)
     position = derive_position(trades, pnl_row, now, amount=held, unit=unit)
     ladder = derive_ladder(trades, config, now, flat=held <= 0, unit=unit)
     account = Account(

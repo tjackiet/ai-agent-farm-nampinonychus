@@ -21,6 +21,7 @@ from nampinonychus.state import (
     parse_trades,
     rounds,
     sellable,
+    sellable_now,
 )
 from tests import helpers
 from tests.helpers import load_config, market
@@ -213,6 +214,57 @@ class 売れる数量Test(unittest.TestCase):
         self.assertTrue(is_flat(Decimal(0), None))
 
 
+class いま発注できる数量Test(unittest.TestCase):
+    """「いくら持っているか」と「いま新しく発注できるのはいくらか」は別の値。
+
+    利確の売り指値は建玉の全量を押さえるので、置いた瞬間に `available` は
+    0 になる。持っている量は `Position.amount`、発注できる量は `sellable_now`。
+    同じ回で取り消す売り指値のぶんは、発注の時点では解放されている
+    （`orders.execute` は取消を先に流す）。
+    """
+
+    UNIT = Decimal("0.0001")
+
+    def locked(self, available: str, pending_sell=()):
+        return helpers.state(
+            position="0.0091",
+            avg_cost="12049450",
+            step=1,
+            base_available=available,
+            pending_sell=pending_sell,
+        )
+
+    def test_全量ロック中は新規には出せない(self):
+        self.assertEqual(sellable_now(self.locked("0"), self.UNIT), Decimal(0))
+
+    def test_取り消す売り指値のぶんを足せる(self):
+        current = self.locked(
+            "0",
+            pending_sell=[
+                helpers.open_order("s1", "sell", "12107133", "0.0027"),
+                helpers.open_order("s2", "sell", "12287836", "0.0064"),
+            ],
+        )
+        freed = sum((o.amount for o in current.pending_sell), Decimal(0))
+        self.assertEqual(sellable_now(current, self.UNIT, freed), Decimal("0.0091"))
+
+    def test_一部ロック中は空いているぶんと解放ぶんの合計(self):
+        current = self.locked(
+            "0.0027",
+            pending_sell=[helpers.open_order("s2", "sell", "12287836", "0.0064")],
+        )
+        self.assertEqual(sellable_now(current, self.UNIT), Decimal("0.0027"))
+        self.assertEqual(
+            sellable_now(current, self.UNIT, Decimal("0.0064")), Decimal("0.0091")
+        )
+
+    def test_解放ぶんを足しても建玉を超えない(self):
+        current = self.locked("0.0091")
+        self.assertEqual(
+            sellable_now(current, self.UNIT, Decimal("0.0091")), Decimal("0.0091")
+        )
+
+
 
 class DeriveTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -361,6 +413,101 @@ class DeriveTest(unittest.TestCase):
         )
         self.assertLess(state.position.age_days, 1)
         self.assertEqual(state.ladder.step, 1)
+        self.assertFalse(state.position_mismatch)
+
+    def test_売り指値で全量ロックされていても建玉の数量は保有量(self):
+        """2026-09-14 21:06 の状態。tp-1 と tp-2 が建玉 0.0091 の全量を押さえている。
+
+        `available` が 0 なのを建玉ゼロと読み、「建玉なし」と振り返りに書いた上、
+        次の回で階段を IDLE に戻して1段目を新規に出した。
+        """
+        state = self.derive(
+            now=helpers.at("2026-09-14T21:10:00+09:00"),
+            assets_rows=[
+                {"asset": "jpy", "total": 890350, "locked": 0, "available": 890350},
+                {"asset": "btc", "total": 0.0091, "locked": 0.0091, "available": 0},
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": 0.0091,
+                        "avgCost": 12049450,
+                        "currentPrice": 12050000,
+                        "realizedPnl": 0,
+                        "unrealizedPnl": 5,
+                        "totalPnl": 5,
+                    }
+                }
+            },
+            order_rows=[
+                {
+                    "id": "tp-1",
+                    "pair": "btc_jpy",
+                    "side": "sell",
+                    "type": "limit",
+                    "price": 12107133,
+                    "amount": 0.0027,
+                    "createdAt": "2026-09-14T12:06:00.000Z",
+                },
+                {
+                    "id": "tp-2",
+                    "pair": "btc_jpy",
+                    "side": "sell",
+                    "type": "limit",
+                    "price": 12287836,
+                    "amount": 0.0064,
+                    "createdAt": "2026-09-14T12:06:00.000Z",
+                },
+            ],
+            history_rows=[trade("buy", "0.0091", "12049450", "2026-09-14T12:06:00.000Z")],
+            unit_amount=UNIT,
+        )
+        self.assertEqual(state.position.amount, Decimal("0.0091"))
+        self.assertEqual(state.position.avg_cost_jpy, Decimal("12049450"))
+        self.assertEqual(
+            state.position.cost_basis_jpy, Decimal("0.0091") * Decimal("12049450")
+        )
+        self.assertEqual(state.position.opened_at, helpers.at("2026-09-14T21:06:00+09:00"))
+        self.assertEqual(state.ladder.step, 1)
+        self.assertEqual(state.ladder.last_fill_price_jpy, Decimal("12049450"))
+        self.assertEqual(len(state.pending_sell), 2)
+        self.assertFalse(state.position_mismatch)
+        # 新しく発注できる量は別。ロック中は 0 で、取り消せば戻る。
+        self.assertEqual(state.account.base_available, Decimal(0))
+        self.assertEqual(sellable_now(state, UNIT), Decimal(0))
+        self.assertEqual(sellable_now(state, UNIT, Decimal("0.0091")), Decimal("0.0091"))
+
+    def test_ロック中でも残高の端数のずれは切り捨てる(self):
+        """`total` 側にも浮動小数点のずれは出る。3fb79fa の扱いをそのまま保つ。"""
+        state = self.derive(
+            assets_rows=[
+                {"asset": "jpy", "total": 967920, "locked": 0, "available": 967920},
+                {
+                    "asset": "btc",
+                    "total": 0.0031999999999999967,
+                    "locked": 0.0031999999999999967,
+                    "available": 0,
+                },
+            ],
+            pnl_report={
+                "perPair": {
+                    "btc_jpy": {
+                        "pair": "btc_jpy",
+                        "position": 0.0032,
+                        "avgCost": 12438813,
+                        "currentPrice": 12415315,
+                        "realizedPnl": 7726.4,
+                        "unrealizedPnl": -75.19,
+                        "totalPnl": 7651.2,
+                    }
+                }
+            },
+            history_rows=[trade("buy", "0.0032", "12438813", "2026-08-22T00:00:00.000Z")],
+            unit_amount=UNIT,
+        )
+        self.assertEqual(state.position.amount, Decimal("0.0031"))
+        self.assertLessEqual(state.position.amount, state.account.base_total)
         self.assertFalse(state.position_mismatch)
 
     def test_建玉と平均取得単価をpnlから取る(self):
