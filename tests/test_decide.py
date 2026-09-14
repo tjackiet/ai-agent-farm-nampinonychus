@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import unittest
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from nampinonychus.decide import BUY, HOLD, SELL, decide, desired_sell_orders, state_name
 from nampinonychus.state import derive as derive_state
 from tests import helpers
-from tests.helpers import guards, load_config, market, open_order, pair_spec, state
+from tests.helpers import (
+    guards,
+    load_config,
+    market,
+    open_order,
+    pair_spec,
+    state,
+    take_profit_orders,
+)
 
 NOW = helpers.at("2026-08-18T09:00:00+09:00")
 
@@ -100,10 +108,7 @@ class BuyTest(unittest.TestCase):
             last_fill_price="14550000",
             last_fill_at="2026-08-18T06:00:00+09:00",
             cooldown_until="2026-08-18T12:00:00+09:00",
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0027"),
-            ],
+            pending_sell=take_profit_orders("0.0054", "14550000"),
         )
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
@@ -123,10 +128,7 @@ class BuyTest(unittest.TestCase):
             used_budget="600000",
             last_fill_price="12099221",
             cash="400000",
-            pending_sell=[
-                open_order("s1", "sell", "13214525", "0.0227"),
-                open_order("s2", "sell", "13254050", "0.0228"),
-            ],
+            pending_sell=take_profit_orders("0.0455", "13175000"),
         )
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
@@ -146,10 +148,7 @@ class BuyTest(unittest.TestCase):
             cash="921430",
             cash_available=cash_available,
             pending_buy=pending_buy,
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0027"),
-            ],
+            pending_sell=take_profit_orders("0.0054", "14550000"),
         )
 
     def test_現金の下限を割る買いはしない(self):
@@ -200,10 +199,7 @@ class BuyTest(unittest.TestCase):
             last_fill_at="2026-08-17T00:00:00+09:00",
             cooldown_until="2026-08-17T06:00:00+09:00",
             cash="400000",
-            pending_sell=[
-                open_order("s1", "sell", "13226373", "0.0227"),
-                open_order("s2", "sell", "13265933", "0.0228"),
-            ],
+            pending_sell=take_profit_orders("0.0455", "13186813"),
         )
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
@@ -219,10 +215,7 @@ class BuyTest(unittest.TestCase):
             last_fill_at="2026-08-17T00:00:00+09:00",
             cooldown_until="2026-08-17T06:00:00+09:00",
             cash="921430",
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0027"),
-            ],
+            pending_sell=take_profit_orders("0.0054", "14550000"),
         )
         decision = self.decide(current)
         self.assertEqual(decision.action, BUY)
@@ -278,10 +271,7 @@ class RepriceTest(unittest.TestCase):
             cooldown_until="2026-08-17T06:00:00+09:00",
             cash="921430",
             pending_buy=[open_order("b2", "buy", "14477250", "0.0069")],
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0027"),
-            ],
+            pending_sell=take_profit_orders("0.0054", "14550000"),
         )
         decision = self.decide(current)
         self.assertEqual(decision.cancel, ())
@@ -310,17 +300,38 @@ class SellTest(unittest.TestCase):
         self.config = load_config()
 
     def test_建玉ができたら利確の指値を2本置く(self):
-        current = state(position="0.0055", avg_cost="14550000", step=1, cash="920000")
+        """価格と数量は agent.yaml の利確段から計算して確かめる。
+
+        数字を直接書くと、利確幅を変えるたびに落ちる。ここで見たいのは
+        「設定どおりの2本が置かれること」であって、特定の価格ではない。
+        """
+        avg, position = Decimal("14550000"), Decimal("0.0055")
+        current = state(position=str(position), avg_cost=str(avg), step=1, cash="920000")
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
         self.assertEqual(decision.action, SELL)
-        prices = [(o.price, o.amount, o.label) for o in decision.place]
-        self.assertEqual(
-            prices,
-            [
-                (Decimal("14593650"), Decimal("0.0027"), "tp-1"),
-                (Decimal("14637300"), Decimal("0.0028"), "tp-2"),
-            ],
-        )
+
+        first, second = self.config.take_profit
+        unit = pair_spec().unit_amount
+        first_amount = (position * Decimal(str(first.sell_ratio)) / unit).to_integral_value(
+            rounding=ROUND_FLOOR
+        ) * unit
+        expected = [
+            (
+                (avg * (Decimal(1) + Decimal(str(first.gain_pct)) / 100)).to_integral_value(
+                    rounding=ROUND_FLOOR
+                ),
+                first_amount,
+                "tp-1",
+            ),
+            (
+                (avg * (Decimal(1) + Decimal(str(second.gain_pct)) / 100)).to_integral_value(
+                    rounding=ROUND_FLOOR
+                ),
+                position - first_amount,
+                "tp-2",
+            ),
+        ]
+        self.assertEqual([(o.price, o.amount, o.label) for o in decision.place], expected)
 
     def test_置き直すときは既存を取り消す(self):
         current = state(
@@ -340,10 +351,7 @@ class SellTest(unittest.TestCase):
             step=1,
             cash="920000",
             cooldown_until="2026-08-18T23:00:00+09:00",
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0028"),
-            ],
+            pending_sell=take_profit_orders("0.0055", "14550000"),
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
         self.assertEqual(decision.action, HOLD)
@@ -374,10 +382,7 @@ class RiskTest(unittest.TestCase):
             step=1,
             cash="760000",
             equity="840000",
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0028"),
-            ],
+            pending_sell=take_profit_orders("0.0055", "14550000"),
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
         self.assertEqual(decision.state, "HIBERNATING")
@@ -393,10 +398,7 @@ class RiskTest(unittest.TestCase):
             cash="760000",
             equity="840000",
             pending_buy=[open_order("b1", "buy", "14477250", "0.0069")],
-            pending_sell=[
-                open_order("s1", "sell", "14593650", "0.0027"),
-                open_order("s2", "sell", "14637300", "0.0028"),
-            ],
+            pending_sell=take_profit_orders("0.0055", "14550000"),
         )
         decision = decide(self.config, guards(), market(), pair_spec(), current, NOW)
         self.assertEqual(decision.state, "HIBERNATING")
