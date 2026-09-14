@@ -1,5 +1,9 @@
 # AI Agent Farm — Nampinonychus
 
+[![tests](https://github.com/tjackiet/ai-agent-farm-nampinonychus/actions/workflows/tests.yml/badge.svg)](https://github.com/tjackiet/ai-agent-farm-nampinonychus/actions/workflows/tests.yml)
+[![security](https://github.com/tjackiet/ai-agent-farm-nampinonychus/actions/workflows/security.yml/badge.svg)](https://github.com/tjackiet/ai-agent-farm-nampinonychus/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 ナンピノニクスは、価格下落時の買いを得意とする投資AIエージェントです。
 
 AIエージェントが `bitbank-lab-cli` を利用して市場データを取得し、ペーパートレードによるフォワード運用を行う実験プロジェクトです。
@@ -25,6 +29,7 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 .
 ├── CLAUDE.md
 ├── README.md
+├── LICENSE
 ├── agent.yaml
 ├── status.yaml
 ├── visual-profile.yaml
@@ -36,6 +41,9 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 ├── requirements.txt
 ├── nampinonychus/          # エージェント本体（Python 3）
 ├── tests/
+├── .github/
+│   ├── workflows/          # テストとセキュリティ点検（GitHub Actions）
+│   └── dependabot.yml
 ├── records/
 │   └── performance.sample.yaml
 ├── scripts/
@@ -61,6 +69,8 @@ AIエージェントが `bitbank-lab-cli` を利用して市場データを取�
 | `requirements.txt` | Python の依存。PyYAML のみ                                      |
 | `nampinonychus/`  | エージェント本体。観測・判断・発注・記録（Phase 6）               |
 | `tests/`          | 判断ロジックとガードのテスト                                     |
+| `.github/workflows/` | テスト（`tests.yml`）とセキュリティ点検（`security.yml`）     |
+| `LICENSE`         | MIT License                                                      |
 | `scripts/export_agent_package.py` | 表示用パッケージ（`*.agent.json`）のエクスポート処理 |
 | `examples/nampinonychus.sample.agent.json` | サンプル実績で生成した表示用パッケージ。**生成物であり手で編集しない** |
 | `personality.md`  | 性格・行動原則・話し方                                           |
@@ -501,6 +511,21 @@ Homebrew や OS 付属の Python では、`pip install` が
 .venv/bin/python -m unittest discover -s tests -t .
 ```
 
+同じテストを GitHub Actions でも回します（`.github/workflows/tests.yml`）。
+Python 3.9 / 3.11 / 3.13 で実行します。**テストは外に出ません。** `bitbank` も
+`claude` も呼ばず、CLI 応答は差し替えたものだけを使うため（`tests/helpers.py`）、
+CI に資格情報は要りません。
+
+`.github/workflows/security.yml` は、毎週と PR ごとに次の2つを見ます。
+
+| 点検 | 見るもの |
+| --- | --- |
+| CodeQL | コードの脆弱性。結果は GitHub の Security タブに出る |
+| pip-audit | 依存（PyYAML）に既知の脆弱性が出ていないか |
+
+資格情報そのものの流出は、GitHub の Secret scanning（リポジトリ設定。公開
+リポジトリでは無償）に任せます。記録へ秘密を書かないことは `tests/` が受け持ちます。
+
 ## 現在の開発段階
 
 エージェント本体（Phase 6〜8）と、通知・言語化まで実装しています。
@@ -521,3 +546,10 @@ Homebrew や OS 付属の Python では、`pip install` が
 実際の資金による取引は行わず、ペーパートレードのみを対象とします。
 
 本リポジトリの内容は、投資助言や利益を保証するものではありません。
+
+## ライセンス
+
+[MIT License](LICENSE) です。Copyright (c) 2026 Toshiki Tanaka.
+
+`agent.yaml` や各 `.md` を含め、本リポジトリの内容はこのライセンスで公開して
+います。ただし運用の産物（`var/` 配下）はリポジトリに含みません。
