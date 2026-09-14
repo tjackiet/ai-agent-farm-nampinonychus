@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -71,6 +73,22 @@ def _model(raw: Any, path: str) -> str:
                 f"agent.yaml の {path} に {marker} 系のモデルは指定できません: {value}"
             )
     return value
+
+
+# 判断ログに残す、戦略の値の指紋。**設定を変えた前後のラウンドを混ぜないために使う。**
+# ペーパーで値を試すと、同じ口座に違う設定の結果が並ぶ。どの回がどの設定だったかが
+# 残っていないと、あとの測定が設定違いを平均した数字を出す。
+FINGERPRINTED = ("strategy", "risk")
+
+
+def fingerprint(raw: Any) -> str:
+    """`strategy` と `risk` の値から8桁の指紋を作る。
+
+    version と違って、人が上げ忘れても勝手に変わる。値が同じなら同じ指紋になる。
+    """
+    subject = {key: raw.get(key) for key in FINGERPRINTED if isinstance(raw, dict)}
+    packed = json.dumps(subject, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(packed.encode("utf-8")).hexdigest()[:8]
 
 
 @dataclass(frozen=True)

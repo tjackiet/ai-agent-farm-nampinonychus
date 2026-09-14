@@ -79,6 +79,8 @@ def read_recent(
 def build_record(
     *,
     run_id: str,
+    config_version: str | None = None,
+    strategy_fingerprint: str | None = None,
     state_label: str,
     pair: str,
     market: object | None,
@@ -94,6 +96,8 @@ def build_record(
 ) -> dict:
     return {
         "run_id": run_id,
+        # その回どの設定で動いていたか。値を変えた前後のラウンドを混ぜないために残す。
+        "config": {"version": config_version, "strategy": strategy_fingerprint},
         "state": state_label,
         "pair": pair,
         "price": float(market.last) if market is not None else None,

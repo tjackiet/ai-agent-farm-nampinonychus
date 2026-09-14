@@ -104,6 +104,37 @@ def last_at_or_before(points: Sequence, end: datetime):
     return seen
 
 
+def config_timeline(records: Sequence[dict], tz_name: str) -> list:
+    """判断ログから (時刻, version, 指紋) を古い順に取り出す。
+
+    設定を変えた前後のラウンドを混ぜないために使う。指紋の無い古い記録は None。
+    """
+    timeline = []
+    for record in records:
+        run_id = record.get("run_id")
+        if not isinstance(run_id, str):
+            continue
+        try:
+            at = timeutil.from_iso(run_id, tz_name)
+        except ValueError:
+            continue
+        conf = record.get("config")
+        conf = conf if isinstance(conf, dict) else {}
+        timeline.append((at, conf.get("version"), conf.get("strategy")))
+    timeline.sort(key=lambda row: row[0])
+    return timeline
+
+
+def config_at(timeline: Sequence, when: datetime):
+    """その時刻に動いていた設定。分からなければ (None, None)。"""
+    seen = (None, None)
+    for at, version, strategy in timeline:
+        if at > when:
+            break
+        seen = (version, strategy)
+    return seen
+
+
 def round_trades(round_: Round, trades: Sequence[Trade]) -> list:
     """そのラウンドに属する約定。ラウンドは時間で重ならないので範囲で切れる。"""
     end = round_.closed_at
@@ -259,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="python3 scripts/measure_take_profit.py",
         description="利確幅を決めるための測定（読み取りのみ。発注しない）",
     )
-    parser.add_argument("--config", default=None, help="agent.yaml のパス")
+    parser.add_argument("--agent-config", default=None, help="agent.yaml のパス")
     parser.add_argument("--root", default=None, help="判断ログを読む基準ディレクトリ")
     parser.add_argument("--trades", default=None, help="約定履歴の JSON（省略時は CLI）")
     parser.add_argument(
@@ -268,13 +299,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="測る上昇幅（%%）。カンマ区切り",
     )
     parser.add_argument("--windows", default="24,72", help="測る時間（h）。カンマ区切り")
+    parser.add_argument("--config", dest="config_fp", default=None,
+                        help="この戦略の指紋のラウンドだけを見る（設定ごとに分けて測る）")
+    parser.add_argument("--since", default=None, help="この時刻より後に始まったラウンドだけ")
+    parser.add_argument("--until", default=None, help="この時刻より前に始まったラウンドだけ")
     parser.add_argument("--tp1", default=None, help="1段目の利確幅（%%）。既定は agent.yaml")
     parser.add_argument(
         "--taker-fee", default=None, help="成行の手数料率（例 0.0012）。既定は CLI の pairs"
     )
     args = parser.parse_args(argv)
 
-    cfg = config_module.load(args.config)
+    cfg = config_module.load(args.agent_config)
     root = Path(args.root) if args.root else None
     records = performance_module.all_records(cfg, root)
     points = price_points(records, cfg.timezone)
@@ -307,6 +342,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not closed:
         print("\n閉じたラウンドがありません。測定できるのは決済まで終わったぶんだけです。")
         return 0
+
+    timeline = config_timeline(records, cfg.timezone)
+    owner = {id(r): config_at(timeline, r.opened_at) for r in closed}
+
+    if args.since:
+        since = timeutil.from_iso(args.since, cfg.timezone)
+        closed = [r for r in closed if r.opened_at >= since]
+    if args.until:
+        until = timeutil.from_iso(args.until, cfg.timezone)
+        closed = [r for r in closed if r.opened_at <= until]
+    if args.config_fp:
+        closed = [r for r in closed if owner[id(r)][1] == args.config_fp]
+    if not closed:
+        print("\n絞り込みの結果、閉じたラウンドが残りませんでした。")
+        return 0
+
+    print("\n=== 0. どの設定のラウンドか ===")
+    seen: dict = {}
+    for round_ in closed:
+        seen.setdefault(owner[id(round_)], []).append(round_)
+    for (version, strategy), group in sorted(seen.items(), key=lambda kv: str(kv[0])):
+        name = f"{strategy}（v{version}）" if strategy else "指紋なし（記録を足す前）"
+        pnl = sum((r.realized_pnl_jpy for r in group), Decimal(0))
+        print(
+            f"  {name}: {len(group)} ラウンド / "
+            f"{timeutil.to_iso(min(r.opened_at for r in group))} 〜 "
+            f"{timeutil.to_iso(max(r.closed_at or r.opened_at for r in group))} / "
+            f"{_fmt_jpy(pnl)} JPY"
+        )
+    if len(seen) > 1:
+        print("  ※ 設定が違うラウンドが混ざっています。下の数字は別の戦略を平均したものです。")
+        print("     --config <指紋> か --since で切り分けてください。")
 
     print("\n=== 1. 閉じたラウンドの実績 ===")
     returns = [r.return_pct for r in closed]

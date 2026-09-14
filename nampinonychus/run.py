@@ -254,6 +254,8 @@ def run_once(
 
     record = journal.build_record(
         run_id=run_id,
+        config_version=cfg.version,
+        strategy_fingerprint=config_module.fingerprint(cfg.raw),
         state_label=decision.state,
         pair=cfg.pair,
         market=market,
