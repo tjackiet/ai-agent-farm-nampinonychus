@@ -166,10 +166,28 @@ class VetoStreakTest(unittest.TestCase):
         records = []
         for _ in range(self.threshold):
             records += [not_consulted(), not_consulted(), stopped(error=UNREACHABLE)]
-        records.append(not_consulted())
         messages = self.build(records)
         self.assertEqual(len(messages), 1)
         self.assertIn(f"{self.threshold}回続けて", messages[0])
+
+    def test_諮っていない回では繰り返さない(self):
+        """見送りの数が伸びない回に、同じ通知をもう一度出さない。
+
+        数は諮った回だけで増える。諮らない回が続くと数が止まり、止まった数が
+        発報の点に当たっていると毎回送ってしまう。15分ごとの運用では1日 96 通。
+        """
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        self.assertEqual(len(self.build(records)), 1)
+        for _ in range(3):
+            records.append(not_consulted())
+            self.assertEqual(self.build(records), [])
+
+    def test_通した回でも繰り返さない(self):
+        """数え直された回に、直前の通知をもう一度出さない。"""
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        self.assertEqual(len(self.build(records)), 1)
+        records.append(proceeded())
+        self.assertEqual(self.build(records), [])
 
     def test_意図した見送りと諮れなかった失敗で文面が変わる(self):
         intended = self.build(
