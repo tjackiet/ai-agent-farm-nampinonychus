@@ -236,7 +236,23 @@ sed -e "s|__REPO__|$PWD|g" \
     -e "s|__PATH__|$NODE_BIN:$CLAUDE_BIN:/usr/bin:/bin:/usr/sbin:/sbin|g" \
     scripts/launchd/local.nampinonychus.plist \
     > ~/Library/LaunchAgents/local.nampinonychus.plist
+```
 
+通知を使うなら、**`launchctl load` の前に** Webhook の URL を足します。
+生成した plist の `EnvironmentVariables` にコメントアウトした雛形があるので、
+開いてコメントを外し、URL を入れてください。
+
+```bash
+open -e ~/Library/LaunchAgents/local.nampinonychus.plist
+```
+
+**launchd は起動したシェルの環境変数を引き継ぎません。** ログインシェルで
+`export` していても、ここに書かなければ通知は送られません。URL を入れた plist は
+`~/Library/LaunchAgents` にだけ置き、リポジトリへ戻さないでください。
+
+読み込みます。
+
+```bash
 launchctl load ~/Library/LaunchAgents/local.nampinonychus.plist
 ```
 
@@ -246,10 +262,16 @@ launchctl load ~/Library/LaunchAgents/local.nampinonychus.plist
 launchctl list | grep nampinonychus     # 動いているか
 tail -f var/run.log                     # 判断を1行ずつ眺める
 launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist   # 止める
+
+# 通知の URL が渡っているか（1 以上なら渡っている。URL そのものは出ない）
+launchctl print gui/$(id -u)/local.nampinonychus | grep -c NAMPINONYCHUS_WEBHOOK_URL
 ```
 
 - **`PATH` を明示するのは必須です。** launchd の既定の `PATH` には npm の
   グローバル配置先が含まれず、`bitbank` が見つかりません。
+- **Webhook の URL を入れ忘れても運用は止まりません。** 売買は続き、通知だけが
+  送られません。**送るものが無い回は警告も出ない**ので、静かな `var/run.log` は
+  「届いている」証拠になりません。上の `launchctl print` で確かめてください。
 - **`claude` を入れ忘れても運用は止まりません。** 売買は続き、所感と学びだけが
   空欄のまま残ります。気づくには `grep 書けませんでした var/run.err.log` を見ます
   （判断ログには載りません。記録を先に確定させるためです）。
@@ -379,7 +401,9 @@ plist の `PATH` については「定期実行」を参照してください。
 export NAMPINONYCHUS_WEBHOOK_URL="https://discord.com/api/webhooks/..."
 ```
 
-launchd から動かす場合は、plist の `EnvironmentVariables` に足してください。
+launchd から動かす場合は、plist の `EnvironmentVariables` に足してください
+（雛形にコメントアウトした行があります。手順は「定期実行」を参照）。
+**ログインシェルの `export` は launchd に引き継がれません。**
 
 送るのは次の5つだけです。**HOLD は送りません**（1日 96 回になるため）。
 

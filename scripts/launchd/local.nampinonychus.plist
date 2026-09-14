@@ -15,6 +15,10 @@
   narrate を使うなら claude のディレクトリも並べること。bitbank と同じとは
   限らない（公式インストーラなら ~/.local/bin）。入れ忘れると売買は続くが、
   所感と学びだけが空欄のまま残り、原因は var/run.err.log にしか出ない。
+
+  通知を使うなら NAMPINONYCHUS_WEBHOOK_URL も要る（下の EnvironmentVariables）。
+  launchd は起動したシェルの環境変数を引き継がない。ログインシェルで export
+  していてもここに無ければ通知は送られず、黙ったまま気づけない。
 -->
 <plist version="1.0">
 <dict>
@@ -35,6 +39,21 @@
   <dict>
     <key>PATH</key>
     <string>__PATH__</string>
+
+    <!--
+      通知を使うなら、下の2行のコメントを外して Webhook の URL を入れる。
+      通知は任意なので、雛形では外してある。
+
+      入れた plist は ~/Library/LaunchAgents にだけ置き、リポジトリへ戻さないこと
+      （CLAUDE.md「API キー・シークレット・プロファイル名は、ログにも記憶にも残さない」）。
+
+      渡っているかは値を出さずに確かめられる。
+        launchctl print gui/$(id -u)/local.nampinonychus | grep -c NAMPINONYCHUS_WEBHOOK_URL
+    -->
+    <!--
+    <key>NAMPINONYCHUS_WEBHOOK_URL</key>
+    <string>ここに Webhook の URL</string>
+    -->
   </dict>
 
   <!-- 15分ごと。スリープ中は動かず、復帰後に一度だけ実行される。 -->
