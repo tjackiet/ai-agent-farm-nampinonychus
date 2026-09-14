@@ -94,9 +94,12 @@ def state(
     pending_buy: Sequence[OpenOrder] = (),
     pending_sell: Sequence[OpenOrder] = (),
     mismatch: bool = False,
+    base_available: str | None = None,
 ) -> State:
+    """`base_available` は売り指値でロックされていない量。省略すると建玉の全量。"""
     amount = Decimal(position)
     available = Decimal(cash_available if cash_available is not None else cash)
+    base_free = Decimal(base_available) if base_available is not None else amount
     return State(
         position=Position(
             amount=amount,
@@ -119,7 +122,7 @@ def state(
             cash_locked_jpy=Decimal(cash) - available,
             cash_available_jpy=available,
             base_total=amount,
-            base_available=amount,
+            base_available=base_free,
             equity_jpy=Decimal(equity) if equity else Decimal(cash) + amount * Decimal("14700000"),
         ),
         pending_buy=tuple(pending_buy),

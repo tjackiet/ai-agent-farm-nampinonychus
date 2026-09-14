@@ -21,7 +21,7 @@ from .orders import (
     sell_amount,
     to_decimal,
 )
-from .state import DUST, State
+from .state import DUST, State, sellable_now
 
 HOLD = "HOLD"
 BUY = "BUY"
@@ -59,10 +59,20 @@ def state_name(config: Config, state: State | None) -> str:
 def desired_sell_orders(
     config: Config, spec: PairSpec, state: State
 ) -> tuple[PlaceOrder, ...]:
-    """建玉に対して板に置いておくべき利確の売り指値。"""
+    """建玉に対して板に置いておくべき利確の売り指値。
+
+    数量は建玉（ロックを引く前の保有量）から組み立てる。置き直すときは板の
+    売り指値をすべて取り消してから出すので、ロックされている量は解放される。
+    ロック状況で数量が変わると、回ごとに取消と再発注を繰り返してしまう。
+    """
     position = state.position.amount
     avg_cost = state.position.avg_cost_jpy
     if position <= 0 or avg_cost is None:
+        return ()
+    # 置き直しでは板の売り指値を全部取り消すので、そのぶんは発注に使える。
+    freed = sum((o.amount for o in state.pending_sell), Decimal(0))
+    position = min(position, sellable_now(state, spec.unit_amount, freed))
+    if position <= 0:
         return ()
 
     levels = sorted(config.take_profit, key=lambda tp: tp.level)
@@ -132,7 +142,9 @@ def _exit_all(
 ) -> Decision:
     """全建玉を成行で手仕舞いする（強制手仕舞い・時間切れ）。"""
     cancel = tuple(o.id for o in (*state.pending_buy, *state.pending_sell))
-    amount = floor_to_unit(state.position.amount, spec.unit_amount)
+    # 板の売り指値は先に取り消すので、ロックされていた量も売りに出せる。
+    freed = sum((o.amount for o in state.pending_sell), Decimal(0))
+    amount = sellable_now(state, spec.unit_amount, freed)
     if amount > spec.market_max_amount:
         amount = floor_to_unit(spec.market_max_amount, spec.unit_amount)
     if amount < spec.unit_amount:
