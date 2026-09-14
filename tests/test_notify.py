@@ -31,6 +31,30 @@ def placed(label="step-1", side="buy", price=10282738.0, amount=0.0077, executed
     }
 
 
+def stopped(error=None, reason=""):
+    """拒否権で見送った回の判断ログ。`error` があれば諮れていない。"""
+    return {
+        "error": None,
+        "veto": {"consulted": True, "stopped": True, "reason": reason, "error": error},
+    }
+
+
+def proceeded():
+    """諮って通した回。"""
+    return {
+        "error": None,
+        "veto": {"consulted": True, "stopped": False, "reason": "", "error": None},
+    }
+
+
+def not_consulted():
+    """諮らなかった回。買いを出す回だけ諮るため、ほとんどの回はこれ。"""
+    return {"error": None, "veto": None}
+
+
+UNREACHABLE = "NarrateError: claude が異常終了しました（終了コード 1）"
+
+
 class MessageTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
@@ -82,6 +106,120 @@ class MessageTest(unittest.TestCase):
     def test_HOLDそのものは知らせない(self):
         """1日 96 回になるため、判断そのものは送らない。"""
         self.assertEqual(self.build(decision_state="IDLE", fills=[], orders=[]), [])
+
+
+class VetoStreakTest(unittest.TestCase):
+    """買いが止まり続けていることを知らせる。
+
+    2026-09-04 から 09-13 まで、`claude` の OAuth 期限切れで拒否権を諮れず、
+    買いが9日間すべて HOLD になっていた。判断ログの `error` は null のままで
+    （理由は `veto.error` にしか入らない）、`error_streak` には乗らないため
+    通知が一度も出なかった。誰も気づけなかった。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.previous = notify.Previous(
+            at=helpers.at("2026-08-19T08:50:00+09:00"), state="IDLE"
+        )
+        self.threshold = self.config.notify_veto_streak
+
+    def build(self, records):
+        return notify.build_messages(
+            config=self.config,
+            now=NOW,
+            previous=self.previous,
+            decision_state="IDLE",
+            fills=[],
+            orders=[],
+            records=records,
+        )
+
+    def test_諮れなかった回が続いたら知らせる(self):
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        messages = self.build(records)
+        self.assertEqual(len(messages), 1)
+        self.assertIn(f"{self.threshold}回続けて", messages[0])
+        self.assertIn("諮れず", messages[0])
+        self.assertIn("claude が異常終了しました", messages[0])
+
+    def test_閾値に届かなければ知らせない(self):
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold - 1)]
+        self.assertEqual(self.build(records), [])
+
+    def test_通した回が挟まると数え直す(self):
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        records.append(proceeded())
+        records += [stopped(error=UNREACHABLE) for _ in range(self.threshold - 1)]
+        self.assertEqual(self.build(records), [])
+
+    def test_数え直したあとに閾値へ達したら知らせる(self):
+        records = [stopped(error=UNREACHABLE) for _ in range(10)]
+        records.append(proceeded())
+        records += [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        messages = self.build(records)
+        self.assertEqual(len(messages), 1)
+        self.assertIn(f"{self.threshold}回続けて", messages[0])
+
+    def test_諮っていない回は数え直さない(self):
+        """諮るのは買いを出す回だけ。間に挟まる HOLD で切れては続いたと分からない。"""
+        records = []
+        for _ in range(self.threshold):
+            records += [not_consulted(), not_consulted(), stopped(error=UNREACHABLE)]
+        records.append(not_consulted())
+        messages = self.build(records)
+        self.assertEqual(len(messages), 1)
+        self.assertIn(f"{self.threshold}回続けて", messages[0])
+
+    def test_意図した見送りと諮れなかった失敗で文面が変わる(self):
+        intended = self.build(
+            [stopped(reason="下落が浅い") for _ in range(self.threshold)]
+        )
+        unreachable = self.build(
+            [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        )
+        self.assertNotEqual(intended, unreachable)
+        self.assertIn("LLM の判断で", intended[0])
+        self.assertIn("下落が浅い", intended[0])
+        self.assertNotIn("諮れず", intended[0])
+        self.assertIn("諮れず", unreachable[0])
+        self.assertNotIn("LLM の判断で", unreachable[0])
+
+    def test_閾値を超え続けている間は毎回は送らない(self):
+        """15分ごとの運用で毎回送ると、11 日続いた凍結でおよそ 1,000 通になる。"""
+        every = self.config.notify_streak_repeat_every
+        sent = []
+        for count in range(self.threshold, self.threshold + every * 2 + 1):
+            records = [stopped(error=UNREACHABLE) for _ in range(count)]
+            if self.build(records):
+                sent.append(count)
+        self.assertEqual(
+            sent,
+            [self.threshold, self.threshold + every, self.threshold + every * 2],
+        )
+
+    def test_観測の失敗とは別に数える(self):
+        """`record["error"]` に veto の失敗を混ぜない。意味が違う。"""
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        self.assertEqual(notify.error_streak(records), 0)
+        failures = [{"error": "boom", "veto": None} for _ in range(self.threshold)]
+        self.assertEqual(notify.veto_streak(failures).count, 0)
+
+    def test_無効なら知らせない(self):
+        config = dataclasses.replace(
+            self.config, notify_on={**self.config.notify_on, "veto_streak": False}
+        )
+        records = [stopped(error=UNREACHABLE) for _ in range(self.threshold)]
+        messages = notify.build_messages(
+            config=config,
+            now=NOW,
+            previous=self.previous,
+            decision_state="IDLE",
+            fills=[],
+            orders=[],
+            records=records,
+        )
+        self.assertEqual(messages, [])
 
 
 class ReportTimeTest(unittest.TestCase):
