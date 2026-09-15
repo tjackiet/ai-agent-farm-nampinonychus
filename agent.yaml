@@ -25,7 +25,7 @@ schema_version: 1
 # README やコメントの修正など、判断へ影響しない変更では更新しません。
 # バージョンは強さや運用成績を表しません。
 # 文字列で持ちます（1.10 と 1.1 を別のバージョンとして区別するため）。
-version: "1.2"
+version: "1.3"
 
 agent:
   id: nampinonychus
@@ -142,15 +142,20 @@ strategy:
     reprice_threshold_pct: 0.1
 
   # 買い下がりの階段。from は下落率の基準点。
+  # 同じ価格帯へ注文が集中しないよう、段の間隔を広げて7段に伸ばした（人間の判断）。
+  # 階段が届く範囲はアンカーから -4.13% → -9.78% へ広がる。
+  # 合計は建玉上限（初期資金 × max_position_ratio）と一致させる。
   ladder:
-    max_steps: 5
-    total_budget_jpy: 800000
+    max_steps: 7
+    total_budget_jpy: 900000
     steps:
-      - { step: 1, from: anchor, drop_pct: 0.5, budget_jpy: 110000 }
-      - { step: 2, from: last_fill, drop_pct: 0.5, budget_jpy: 135000 }
-      - { step: 3, from: last_fill, drop_pct: 0.7, budget_jpy: 160000 }
-      - { step: 4, from: last_fill, drop_pct: 1.0, budget_jpy: 185000 }
-      - { step: 5, from: last_fill, drop_pct: 1.5, budget_jpy: 210000 }
+      - { step: 1, from: anchor, drop_pct: 0.7, budget_jpy: 105000 }
+      - { step: 2, from: last_fill, drop_pct: 0.8, budget_jpy: 115000 }
+      - { step: 3, from: last_fill, drop_pct: 1.0, budget_jpy: 125000 }
+      - { step: 4, from: last_fill, drop_pct: 1.3, budget_jpy: 130000 }
+      - { step: 5, from: last_fill, drop_pct: 1.7, budget_jpy: 140000 }
+      - { step: 6, from: last_fill, drop_pct: 2.1, budget_jpy: 140000 }
+      - { step: 7, from: last_fill, drop_pct: 2.6, budget_jpy: 145000 }
 
   exit:
     order_type: limit
@@ -170,9 +175,11 @@ strategy:
     rule: "現在価格がアンカー以上の間は新規買いを行わない"
 
 risk:
-  max_position_ratio: 0.80 # 取得原価合計 / 初期資金
+  # 0.90 と現金下限 0.10 は接する。現金の歯止めは建玉上限と同じ点で効くため、
+  # 実質的に効いているのは建玉上限のほうだけになる。
+  max_position_ratio: 0.90 # 取得原価合計 / 初期資金
   min_cash_reserve_ratio: 0.10 # 常に残す現金比率
-  per_order_max_jpy: 210000
+  per_order_max_jpy: 145000 # 最大の段（7段目）の予算に合わせる
 
   drawdown: # 総資産の初期比
     halt_new_buys_pct: -15.0 # 冬眠（新規買い停止・利確注文は維持）

@@ -64,7 +64,7 @@ class LoadTest(unittest.TestCase):
         self.assertNotEqual(config_module.fingerprint(changed), base)
 
         risk = copy.deepcopy(config.raw)
-        risk["risk"]["max_position_ratio"] = 0.9
+        risk["risk"]["max_position_ratio"] = 0.5
         self.assertNotEqual(config_module.fingerprint(risk), base)
 
     def test_戦略に関係ない設定では指紋が変わらない(self):

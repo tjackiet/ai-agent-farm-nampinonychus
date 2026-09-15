@@ -61,11 +61,11 @@ design:
   # 5. 模様
   markings:
     value: |
-      体側に階段状の横縞を5本。上から下へ降りるにつれ、縞の間隔が広がる。
-      本数は階段の段数（agent.yaml strategy.ladder.max_steps = 5）と一致させる。
+      体側に階段状の横縞を7本。上から下へ降りるにつれ、縞の間隔が広がる。
+      本数は階段の段数（agent.yaml strategy.ladder.max_steps = 7）と一致させる。
     basis:
-      - agent.yaml strategy.ladder（5段）
-      - agent.yaml のラダーは段が下がるほど間隔が広がる（0.5 / 0.5 / 0.7 / 1.0 / 1.5%）
+      - agent.yaml strategy.ladder（7段）
+      - agent.yaml のラダーは段が下がるほど間隔が広がる（0.7 / 0.8 / 1.0 / 1.3 / 1.7 / 2.1 / 2.6%）
 
   # 6. 固定すべき識別要素
   #    これが崩れたら別のキャラクターになる、という線。

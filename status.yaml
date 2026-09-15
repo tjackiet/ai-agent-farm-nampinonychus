@@ -42,9 +42,9 @@ position:
 
 ladder:
   step: 0
-  max_steps: 5
+  max_steps: 7
   used_budget_jpy: 0
-  total_budget_jpy: 600000
+  total_budget_jpy: 900000
   last_fill_price_jpy: null
   last_fill_at: null
   cooldown_until: null

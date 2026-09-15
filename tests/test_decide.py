@@ -16,6 +16,7 @@ from tests.helpers import (
     open_order,
     pair_spec,
     state,
+    step_price,
     take_profit_orders,
 )
 
@@ -77,12 +78,12 @@ class BuyTest(unittest.TestCase):
     def decide(self, current):
         return decide(self.config, guards(), market(), pair_spec(), current, NOW)
 
-    def test_1段目はアンカーから0_5パーセント下に置く(self):
+    def test_1段目はアンカーから1段目の下落率ぶん下に置く(self):
         decision = self.decide(state())
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.state, "IDLE")
         order = decision.place[0]
-        self.assertEqual(order.price, Decimal("14925000"))
+        self.assertEqual(order.price, step_price("15000000"))
         # 数量は 1段目の予算から決まる。予算を変えるたびに書き換えないよう計算する。
         budget = Decimal(str(self.config.ladder_steps[0].budget_jpy))
         unit = pair_spec().unit_amount
@@ -102,7 +103,9 @@ class BuyTest(unittest.TestCase):
     def test_未約定の段があるうちは次の段を出さない(self):
         """2段目の基準は直前の約定価格なので、1段目が約定するまで価格が決まらない。"""
         # アンカーどおりの価格に置いてある（置き直しは起きない）状態にする。
-        current = state(pending_buy=[open_order("o1", "buy", "14925000", "0.0053")])
+        current = state(
+            pending_buy=[open_order("o1", "buy", str(step_price("15000000")), "0.0053")]
+        )
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
         self.assertIn("基準となる約定がまだない", decision.reason)
@@ -131,8 +134,8 @@ class BuyTest(unittest.TestCase):
         current = state(
             position="0.0455",
             avg_cost="13175000",
-            step=5,
-            used_budget="600000",
+            step=load_config().ladder_max_steps,
+            used_budget=str(int(load_config().ladder_total_budget_jpy)),
             last_fill_price="12099221",
             cash="400000",
             pending_sell=take_profit_orders("0.0455", "13175000"),
@@ -176,7 +179,7 @@ class BuyTest(unittest.TestCase):
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.place[0].label, "step-2")
         order = decision.place[0]
-        self.assertEqual(order.price, Decimal("14477250"))
+        self.assertEqual(order.price, step_price("14550000", 2))
         unit = pair_spec().unit_amount
         self.assertEqual(
             order.amount,
@@ -207,19 +210,22 @@ class BuyTest(unittest.TestCase):
         self.assertIn("14477250 の1本を残して", decision.reason)
 
     def test_建玉が上限に達したら買わない(self):
-        """取得原価の合計は初期資金の 60% を超えない。"""
+        """取得原価の合計は `max_position_ratio` を超えない。"""
+        # 総予算を使い切り、残る現金は下限ぴったり。建玉はそのぶんの取得原価を持つ。
+        total = Decimal(str(self.config.ladder_total_budget_jpy))
+        avg = Decimal("13186813")
+        unit = pair_spec().unit_amount
+        position = (total / avg / unit).to_integral_value(rounding=ROUND_FLOOR) * unit
         current = state(
-            position="0.0455",
-            avg_cost="13186813",
+            position=str(position),
+            avg_cost=str(avg),
             step=4,
-            used_budget=str(int(load_config().ladder_total_budget_jpy)),
+            used_budget=str(int(total)),
             last_fill_price="12871512",
             last_fill_at="2026-08-17T00:00:00+09:00",
             cooldown_until="2026-08-17T06:00:00+09:00",
-            cash=str(
-                int(load_config().initial_jpy - load_config().ladder_total_budget_jpy)
-            ),
-            pending_sell=take_profit_orders("0.0455", "13186813"),
+            cash=str(int(Decimal(str(self.config.initial_jpy)) - total)),
+            pending_sell=take_profit_orders(str(position), str(avg)),
         )
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
@@ -240,7 +246,7 @@ class BuyTest(unittest.TestCase):
         decision = self.decide(current)
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.state, "LADDERING")
-        self.assertEqual(decision.place[0].price, Decimal("14477250"))
+        self.assertEqual(decision.place[0].price, step_price("14550000", 2))
         self.assertEqual(decision.place[0].label, "step-2")
 
 
@@ -260,24 +266,27 @@ class RepriceTest(unittest.TestCase):
         decision = self.decide(current)
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.cancel, ("o1",))
-        self.assertEqual(decision.place[0].price, Decimal("14925000"))
+        self.assertEqual(decision.place[0].price, step_price("15000000"))
         self.assertEqual(decision.place[0].label, "step-1")
         self.assertIn("置き直す", decision.reason)
 
     def test_ずれが小さければ触らない(self):
         """しきい値（0.1%）未満のずれでは、無駄な取消をしない。"""
-        current = state(pending_buy=[open_order("o1", "buy", "14920000", "0.0053")])
+        near = step_price("15000000") - Decimal("5000")  # 0.04% ほどのずれ
+        current = state(pending_buy=[open_order("o1", "buy", str(near), "0.0053")])
         decision = self.decide(current)
         self.assertEqual(decision.action, HOLD)
         self.assertEqual(decision.cancel, ())
 
     def test_アンカーが下がっても置き直す(self):
         """上に取り残されると、ルールより高い位置で買うことになる。"""
-        current = state(pending_buy=[open_order("o1", "buy", "14925000", "0.0053")])
+        current = state(
+            pending_buy=[open_order("o1", "buy", str(step_price("15000000")), "0.0053")]
+        )
         decision = self.decide(current, anchor="14000000", last="13900000")
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.cancel, ("o1",))
-        self.assertEqual(decision.place[0].price, Decimal("13930000"))
+        self.assertEqual(decision.place[0].price, step_price("14000000"))
 
     def test_2段目以降は動かさない(self):
         """直前の約定価格が基準なので、アンカーが動いても関係ない。"""
@@ -741,25 +750,29 @@ class 利確でロックされた建玉Test(unittest.TestCase):
         """
         config = dataclasses.replace(self.config, ladder_total_budget_jpy=2_000_000)
         now = helpers.at("2026-09-14T21:55:00+09:00")
-        # 取得原価 780,000 JPY。上限 1,000,000 × 0.80 = 800,000 まで残り 20,000。
+        limit = Decimal(str(config.initial_jpy)) * Decimal(str(config.max_position_ratio))
+        # 建玉上限まで残り 20,000 JPY。段の予算より小さいので、効くのは上限のほう。
+        avg = Decimal("8800000")
+        position = ((limit - Decimal("20000")) / avg / self.UNIT).to_integral_value(
+            rounding=ROUND_FLOOR
+        ) * self.UNIT
         current = self.derive(
             now,
             jpy=300000,
-            position="0.0650",
-            avg_cost="12000000",
+            position=str(position),
+            avg_cost=str(avg),
             available="0",
-            order_rows=self.sells("0.0650", "12000000"),
+            order_rows=self.sells(str(position), str(avg)),
             config=config,
         )
-        self.assertEqual(current.position.cost_basis_jpy, Decimal("780000"))
+        self.assertEqual(current.position.cost_basis_jpy, position * avg)
 
         decision = decide(config, guards(), market(), pair_spec(), current, now)
         self.assertEqual(decision.action, BUY)
         self.assertEqual(decision.place[0].label, "step-2")
         order = decision.place[0]
-        limit = Decimal(str(config.initial_jpy)) * Decimal(str(config.max_position_ratio))
         remaining = limit - current.position.cost_basis_jpy
-        self.assertEqual(remaining, Decimal("20000"))
+        self.assertLess(remaining, Decimal(str(config.ladder_steps[1].budget_jpy)))
         self.assertLessEqual(order.price * order.amount, remaining)
         self.assertGreater(order.price * (order.amount + self.UNIT), remaining)
 
