@@ -163,6 +163,28 @@ def take_profit_orders(
     ]
 
 
+def step_price(
+    base: str | Decimal,
+    step: int = 1,
+    *,
+    config: config_module.Config | None = None,
+    spec: PairSpec | None = None,
+) -> Decimal:
+    """`step` 段目の買い指値。基準から設定の下落率ぶん下げ、価格の刻みへ丸める。
+
+    価格を直接書くと、段の下落率を変えるたびに関係のないテストが落ちる。
+    `take_profit_orders` と同じ理由で、設定から組み立てる。
+    """
+    from nampinonychus.orders import floor_price
+
+    conf = config if config is not None else load_config()
+    pair = spec if spec is not None else pair_spec()
+    drop = Decimal(str(conf.ladder_steps[step - 1].drop_pct))
+    return floor_price(
+        Decimal(str(base)) * (Decimal(1) - drop / Decimal(100)), pair.price_digits
+    )
+
+
 def open_order(
     order_id: str, side: str, price: str, amount: str, created_at: str = "2026-08-18T00:00:00+09:00"
 ) -> OpenOrder:

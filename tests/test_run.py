@@ -111,7 +111,7 @@ class CycleTest(unittest.TestCase):
         self.assertTrue(cycle.dry_run)
         self.assertEqual(len(cycle.orders), 1)
         self.assertFalse(cycle.orders[0]["executed"])
-        self.assertIn("--price=14925000", str(cycle.orders[0]["cmd"]))
+        self.assertIn(f"--price={helpers.step_price('15000000')}", str(cycle.orders[0]["cmd"]))
         self.assertNotIn("paper create-order", " ".join(fake.calls))
 
     def test_force_dry_runは設定より安全側に倒せる(self):
