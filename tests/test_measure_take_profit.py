@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
+import tempfile
 import unittest
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from nampinonychus import cli as cli_module
 from nampinonychus import state as state_module
 from tests import helpers
 
@@ -167,6 +171,71 @@ class SimulateTest(unittest.TestCase):
     def test_価格の記録が無ければ判定しない(self):
         """止まっていた区間を、都合よく埋めない。"""
         self.assertFalse(self.run_with([], Decimal("0.6"))["decided"])
+
+
+# 2026-08-22〜09-02 の実例。成行の手仕舞いが取引単位へ切り捨てるため、
+# 0.0064 のうち 0.0063 しか売れず、0.0001 が残った。
+LEFTOVER_ROWS = [
+    trade_row("buy", "0.0064", 12_438_813, "2026-08-22T07:31:00+09:00"),
+    trade_row("sell", "0.0032", 12_476_129, "2026-08-24T20:36:00+09:00"),
+    trade_row("sell", "0.0031", 12_408_000, "2026-09-02T15:19:02+09:00", "market", 38),
+    trade_row("buy", "0.0064", 12_478_296, "2026-09-02T15:29:00+09:00"),
+    trade_row("sell", "0.0064", 12_407_999, "2026-09-02T15:29:24+09:00", "market", 79),
+]
+
+
+class UnitTest(unittest.TestCase):
+    """ラウンドの区切りを本体と揃える。"""
+
+    def setUp(self) -> None:
+        self.trades = state_module.parse_trades(LEFTOVER_ROWS, "btc_jpy", helpers.TZ)
+
+    def test_端数しか残らないラウンドは閉じる(self):
+        unit, _ = measure.resolve_unit(None, helpers.pair_spec())
+        closed = [r for r in state_module.rounds(self.trades, unit) if r.is_closed]
+        self.assertEqual(len(closed), 2)
+        self.assertEqual(closed[1].opened_at, helpers.at("2026-09-02T15:29:00+09:00"))
+
+    def test_単位が無いと端数で次のラウンドとつながる(self):
+        """直す前の測定。8/21〜9/18 が1つのラウンドに見えていた。"""
+        closed = [r for r in state_module.rounds(self.trades) if r.is_closed]
+        self.assertEqual(closed, [])
+
+    def test_指定した単位を優先する(self):
+        self.assertEqual(
+            measure.resolve_unit("0.001", helpers.pair_spec()), (Decimal("0.001"), "--unit")
+        )
+
+    def test_仕様も指定も無ければ単位は分からない(self):
+        self.assertEqual(measure.resolve_unit(None, None), (None, None))
+
+
+class ReadTradesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cfg = helpers.load_config()
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        path = Path(self.work.name) / "trade-history.json"
+        path.write_text(json.dumps({"data": LEFTOVER_ROWS}), encoding="utf-8")
+        self.args = argparse.Namespace(trades=str(path))
+
+    def read_with(self, fake: helpers.FakeCli):
+        client = cli_module.Client(config=self.cfg, runner=fake)
+        return measure.read_trades(self.args, self.cfg, client)
+
+    def test_ファイルから読んでも銘柄の仕様は取る(self):
+        """ペーパー口座には触れず、公開の pairs だけを叩く。"""
+        fake = helpers.FakeCli({"pairs": [helpers.PAIR_ROW]})
+        trades, spec = self.read_with(fake)
+        self.assertEqual(len(trades), len(LEFTOVER_ROWS))
+        self.assertEqual(spec.unit_amount, Decimal("0.0001"))
+        self.assertEqual([helpers.FakeCli.key_of(c.split()) for c in fake.calls], ["pairs"])
+
+    def test_仕様が取れなくても約定履歴は読む(self):
+        fake = helpers.FakeCli({}, errors={"pairs": "HTTP 403"})
+        trades, spec = self.read_with(fake)
+        self.assertEqual(len(trades), len(LEFTOVER_ROWS))
+        self.assertIsNone(spec)
 
 
 if __name__ == "__main__":

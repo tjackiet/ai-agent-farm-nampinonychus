@@ -16,6 +16,10 @@
 
 - 価格 … 判断ログ（`var/memory/decisions/*.jsonl`）に残る各回の観測価格
 - 約定 … `bitbank paper trade-history`（読み取りのみ）
+- 取引単位・成行の手数料 … `bitbank pairs`（公開 API。ペーパー口座には触れない）
+
+ラウンドの区切りは本体と揃える。売れない端数（取引単位未満）しか残っていない
+建玉は、売り切ったものとして扱う（`state.is_flat`）。
 
 **この結果は戦略の値を決めない。** 値を決めるのは人間であり、本スクリプトは
 その材料を出すだけである（CLAUDE.md「戦略・リスク制約の値をエージェント自身が
@@ -33,6 +37,7 @@
     python3 scripts/measure_take_profit.py
     python3 scripts/measure_take_profit.py --levels 0.3,0.5,0.8,1.0,1.5
     python3 scripts/measure_take_profit.py --trades var/trade-history.json
+    python3 scripts/measure_take_profit.py --trades var/trade-history.json --unit 0.0001
 
 依存: Python 3.9 以降 / PyYAML
 """
@@ -266,23 +271,41 @@ def _fmt_jpy(value: Decimal) -> str:
     return f"{round(float(value)):,}"
 
 
-def read_trades(args, cfg) -> tuple:
-    """約定履歴を読む。--trades があればそのファイル、無ければ CLI。"""
+def read_trades(args, cfg, client=None) -> tuple:
+    """約定履歴と銘柄の仕様を読む。--trades があれば約定履歴はそのファイルから読む。
+
+    銘柄の仕様（取引単位・成行の手数料）は、どちらの場合も `bitbank pairs` から取る。
+    --trades のときも取るのは、取引単位が無いとラウンドを本体と同じに区切れないため。
+    取れなければ None（--unit / --taker-fee か既定値で続ける）。
+    """
+    client = client if client is not None else cli_module.Client(config=cfg)
     if args.trades:
         rows = json.loads(Path(args.trades).read_text(encoding="utf-8"))
         if isinstance(rows, dict):
             rows = rows.get("data", rows.get("trades", []))
-        return state_module.parse_trades(rows, cfg.pair, cfg.timezone), None
-
-    client = cli_module.Client(config=cfg)
-    rows = client.paper_trade_history().data
-    if not isinstance(rows, list):
-        raise SystemExit("ペーパー口座の約定履歴が配列ではありません")
+    else:
+        rows = client.paper_trade_history().data
+        if not isinstance(rows, list):
+            raise SystemExit("ペーパー口座の約定履歴が配列ではありません")
     try:
         spec = observe_module.observe_pair_spec(client, cfg)
-    except Exception:  # noqa: BLE001 - 手数料が取れなくても既定値で続ける
+    except Exception:  # noqa: BLE001 - 仕様が取れなくても --unit か既定値で続ける
         spec = None
     return state_module.parse_trades(rows, cfg.pair, cfg.timezone), spec
+
+
+def resolve_unit(explicit: str | None, spec) -> tuple:
+    """ラウンドの区切りに使う取引単位と、その出どころ。
+
+    単位が無いと `DUST` で判定することになり、0.0001 BTC の端数が残った
+    ラウンドは閉じないまま次のラウンドとつながる。2026-08-21〜09-18 が
+    1つのラウンドに見え、`--since 2026-09-14` で丸ごと落ちていた。
+    """
+    if explicit:
+        return Decimal(str(explicit)), "--unit"
+    if spec is not None:
+        return spec.unit_amount, "bitbank pairs"
+    return None, None
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -309,6 +332,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--taker-fee", default=None, help="成行の手数料率（例 0.0012）。既定は CLI の pairs"
     )
+    parser.add_argument(
+        "--unit", default=None,
+        help="取引単位（例 0.0001）。これ未満の端数しか残らないラウンドを閉じる。既定は CLI の pairs",
+    )
     args = parser.parse_args(argv)
 
     cfg = config_module.load(args.agent_config)
@@ -334,13 +361,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         taker = Decimal("0.0012")
 
-    all_rounds = state_module.rounds(trades)
+    unit, unit_from = resolve_unit(args.unit, spec)
+    all_rounds = state_module.rounds(trades, unit)
     closed = [r for r in all_rounds if r.is_closed]
 
     print(f"判断ログ {len(records)} 件（価格のある回 {len(points)} 件）")
     if points:
         print(f"期間 {timeutil.to_iso(points[0][0])} 〜 {timeutil.to_iso(points[-1][0])}")
     print(f"約定 {len(trades)} 件 / ラウンド {len(all_rounds)} 件（閉じた {len(closed)} 件）")
+    if unit is not None:
+        print(f"取引単位 {unit}（{unit_from}）。これ未満の端数しか残らないラウンドは閉じたものとする")
+    else:
+        print("取引単位が取れないため、端数が残ったラウンドは次とつながる。--unit で指定する")
     print(f"いまの利確幅 {tp_levels[0].gain_pct}%（{tp_levels[0].sell_ratio:.0%}）"
           f" → {tp_levels[-1].gain_pct}%（残り全量）"
           f" / 保有上限 {cfg.time_stop_days} 日 / 成行 {float(taker) * 100:.2f}%")
