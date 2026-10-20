@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from nampinonychus import notify
 from tests import helpers
@@ -255,6 +256,12 @@ class LoginTest(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # 案内の文面は setup-token のトークンが渡っているかで変わる。動かす環境に
+        # 左右されないよう、ここでは渡っていない状態から始める。
+        environ = mock.patch.dict(os.environ)
+        environ.start()
+        self.addCleanup(environ.stop)
+        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
         self.config = load_config()
         self.previous = notify.Previous(
             at=helpers.at("2026-08-19T08:50:00+09:00"), state="IDLE"
@@ -278,6 +285,16 @@ class LoginTest(unittest.TestCase):
         self.assertIn("/login", messages[0])
         self.assertIn("買いを見送っています", messages[0])
         self.assertIn("OAuth session expired", messages[0])
+
+    def test_トークンを使っていれば発行し直すよう案内する(self):
+        """環境変数のトークンが /login のログインより優先される。/login では直らない。"""
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = "dummy"
+        messages = self.build([stopped(error=EXPIRED)])
+        self.assertEqual(len(messages), 1)
+        self.assertIn("claude setup-token", messages[0])
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", messages[0])
+        self.assertNotIn("/login", messages[0])
+        self.assertNotIn("dummy", messages[0])
 
     def test_続いている間は毎回は送らない(self):
         every = self.config.notify_streak_repeat_every

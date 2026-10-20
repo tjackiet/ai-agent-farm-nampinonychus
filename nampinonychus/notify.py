@@ -27,6 +27,19 @@ from .narrate import needs_login
 Poster = Callable[[str, str, int], None]
 
 LOGIN_HINT = "ターミナルで claude を起動し、/login でログインし直してください"
+TOKEN_HINT = (
+    "claude setup-token でトークンを発行し直し、"
+    "plist の CLAUDE_CODE_OAUTH_TOKEN を差し替えてください"
+)
+
+
+def login_hint() -> str:
+    """ログインし直す手順。
+
+    setup-token のトークンが渡っていると、`claude` は /login のログインより
+    そちらを使う。/login しても直らないので、案内を変える。値は残さない。
+    """
+    return TOKEN_HINT if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") else LOGIN_HINT
 
 
 @dataclass(frozen=True)
@@ -223,7 +236,7 @@ def login_line(veto: dict, count: int) -> str:
     effect = "買いを見送っています" if veto.get("stopped") else "買いはそのまま通しています"
     return (
         f"claude のログインが切れています。拒否権を諮れず、{effect}（{count}回目）。"
-        f"{LOGIN_HINT}: {veto.get('error')}"
+        f"{login_hint()}: {veto.get('error')}"
     )
 
 
