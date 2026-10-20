@@ -22,8 +22,11 @@ import yaml
 
 from . import timeutil
 from .config import Config, REPO_ROOT
+from .narrate import needs_login
 
 Poster = Callable[[str, str, int], None]
+
+LOGIN_HINT = "ターミナルで claude を起動し、/login でログインし直してください"
 
 
 @dataclass(frozen=True)
@@ -194,6 +197,36 @@ def veto_streak_line(streak: VetoStreak) -> str:
     return f"{streak.count}回続けて LLM の判断で買いを見送っています: {reason}"
 
 
+def login_streak(records: Sequence[dict]) -> int:
+    """この回を含めて、ログイン切れで続けて拒否権を諮れなかった回の数。
+
+    ログインし直すまで直らないので、`veto_streak` の閾値を待たずに初回から知らせる。
+    この回そのものがログイン切れでなければ 0 にして、諮らない回に同じ通知を
+    繰り返さない。`veto.on_failure` が proceed で見送っていない回も数える。
+    """
+    latest = records[-1].get("veto") if records else None
+    if not isinstance(latest, dict) or not needs_login(latest.get("error")):
+        return 0
+    count = 0
+    for record in reversed(records):
+        veto = record.get("veto")
+        if not isinstance(veto, dict):
+            continue
+        if not needs_login(veto.get("error")):
+            break
+        count += 1
+    return count
+
+
+def login_line(veto: dict, count: int) -> str:
+    """ログイン切れで諮れていないことを1行で。"""
+    effect = "買いを見送っています" if veto.get("stopped") else "買いはそのまま通しています"
+    return (
+        f"claude のログインが切れています。拒否権を諮れず、{effect}（{count}回目）。"
+        f"{LOGIN_HINT}: {veto.get('error')}"
+    )
+
+
 def streak_due(streak: int, threshold: int, repeat_every: int) -> bool:
     """閾値に達した回と、そのあとは `repeat_every` 回ごとにだけ真。
 
@@ -289,7 +322,12 @@ def build_messages(
             last = records[-1].get("error") if records else ""
             messages.append(f"{streak}回続けて失敗しています: {last}")
 
-    if enabled.get("veto_streak"):
+    login = login_streak(records) if enabled.get("login") else 0
+    if login and streak_due(login, 1, config.notify_streak_repeat_every):
+        messages.append(login_line(records[-1]["veto"], login))
+
+    # ログイン切れを知らせている間は、同じ失敗を見送りの連続として重ねて送らない。
+    if enabled.get("veto_streak") and not login:
         stopped = veto_streak(records)
         if stopped.extended and streak_due(
             stopped.count, config.notify_veto_streak, config.notify_streak_repeat_every

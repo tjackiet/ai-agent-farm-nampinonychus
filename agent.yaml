@@ -273,6 +273,7 @@ notify:
     state_change: true # 状態が変わった（IDLE → LADDERING など）
     error: true # 観測や発注に続けて失敗した
     veto_streak: true # 拒否権で買いを見送った回が続いた（諮れていない回を含む）
+    login: true # claude のログインが切れて諮れない（初回からすぐ知らせる）
 
   error_streak: 3 # 何回続けて失敗したら知らせるか（risk-policy.md の人間介入の基準に合わせる）
   veto_streak: 4 # 拒否権で何回続けて見送ったら知らせるか（諮るのは買いを出す回だけ）
