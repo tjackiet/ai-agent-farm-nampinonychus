@@ -240,6 +240,103 @@ class VetoStreakTest(unittest.TestCase):
         self.assertEqual(messages, [])
 
 
+EXPIRED = (
+    "NarrateError: claude が異常終了しました（終了コード 1）: "
+    "Failed to authenticate: OAuth session expired and could not be refreshed"
+)
+
+
+class LoginTest(unittest.TestCase):
+    """ログイン切れは初回から知らせる。
+
+    2026-10-12 から 1 週間、`claude` のログイン切れで拒否権を諮れず、買いが
+    すべて見送られていた。ログインし直すまで直らないので、見送りの連続を
+    待つ意味がない。
+    """
+
+    def setUp(self) -> None:
+        self.config = load_config()
+        self.previous = notify.Previous(
+            at=helpers.at("2026-08-19T08:50:00+09:00"), state="IDLE"
+        )
+
+    def build(self, records, config=None):
+        return notify.build_messages(
+            config=config or self.config,
+            now=NOW,
+            previous=self.previous,
+            decision_state="IDLE",
+            fills=[],
+            orders=[],
+            records=records,
+        )
+
+    def test_初回から知らせる(self):
+        messages = self.build([proceeded(), stopped(error=EXPIRED)])
+        self.assertEqual(len(messages), 1)
+        self.assertIn("ログインが切れています", messages[0])
+        self.assertIn("/login", messages[0])
+        self.assertIn("買いを見送っています", messages[0])
+        self.assertIn("OAuth session expired", messages[0])
+
+    def test_続いている間は毎回は送らない(self):
+        every = self.config.notify_streak_repeat_every
+        sent = []
+        for count in range(1, every * 2 + 2):
+            if self.build([stopped(error=EXPIRED) for _ in range(count)]):
+                sent.append(count)
+        self.assertEqual(sent, [1, 1 + every, 1 + every * 2])
+
+    def test_諮っていない回では繰り返さない(self):
+        records = [stopped(error=EXPIRED)]
+        self.assertEqual(len(self.build(records)), 1)
+        for _ in range(3):
+            records.append(not_consulted())
+            self.assertEqual(self.build(records), [])
+
+    def test_諮っていない回を挟んでも続いているとみなす(self):
+        records = []
+        for _ in range(3):
+            records += [stopped(error=EXPIRED), not_consulted()]
+        self.assertEqual(notify.login_streak(records + [stopped(error=EXPIRED)]), 4)
+
+    def test_見送りの連続として重ねて送らない(self):
+        threshold = self.config.notify_veto_streak
+        messages = self.build([stopped(error=EXPIRED) for _ in range(threshold)])
+        self.assertEqual(messages, [])
+
+    def test_ほかの失敗では知らせず見送りの連続を待つ(self):
+        self.assertEqual(self.build([stopped(error=UNREACHABLE)]), [])
+
+    def test_proceedなら通していると言う(self):
+        """`veto.on_failure` が proceed なら見送っていない。見送りの数にも乗らない。"""
+        records = [
+            {
+                "error": None,
+                "veto": {
+                    "consulted": True,
+                    "stopped": False,
+                    "reason": "",
+                    "error": EXPIRED,
+                },
+            }
+        ]
+        messages = self.build(records)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("買いはそのまま通しています", messages[0])
+
+    def test_無効なら見送りの連続として知らせる(self):
+        config = dataclasses.replace(
+            self.config, notify_on={**self.config.notify_on, "login": False}
+        )
+        threshold = config.notify_veto_streak
+        self.assertEqual(self.build([stopped(error=EXPIRED)], config), [])
+        messages = self.build([stopped(error=EXPIRED) for _ in range(threshold)], config)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("諮れず", messages[0])
+        self.assertIn("OAuth session expired", messages[0])
+
+
 class ReportTimeTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()

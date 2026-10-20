@@ -32,6 +32,17 @@ class NarrateError(RuntimeError):
     """
 
 
+# claude がログインし直しを求めるときの文面。2026-10-12 に出たのは
+# `Failed to authenticate: OAuth session expired and could not be refreshed`。
+# ドキュメントにある `Login expired · Please run /login` の形も拾う。
+_LOGIN_REQUIRED = re.compile(r"Failed to authenticate|Please run /login|OAuth", re.I)
+
+
+def needs_login(error: object) -> bool:
+    """失敗の理由が、claude のログイン切れを示しているか。判断ログの値も渡る。"""
+    return isinstance(error, str) and _LOGIN_REQUIRED.search(error) is not None
+
+
 STYLE_RULES = """守ること:
 
 - 渡された本文に書かれている数値だけを使う。新しい数値を作らない

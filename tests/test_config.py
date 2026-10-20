@@ -83,6 +83,7 @@ class LoadTest(unittest.TestCase):
         """見送りの連続と繰り返し間隔は、戦略やリスクの値ではなく通知の設定。"""
         config = load_config()
         self.assertTrue(config.notify_on["veto_streak"])
+        self.assertTrue(config.notify_on["login"])
         self.assertEqual(config.notify_veto_streak, 4)
         self.assertEqual(config.notify_streak_repeat_every, 24)
 

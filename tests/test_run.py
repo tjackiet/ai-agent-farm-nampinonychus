@@ -265,6 +265,67 @@ class CycleTest(unittest.TestCase):
         self.assertTrue(cycle.status_written)
         self.assertTrue(any("送れませんでした" in w for w in cycle.warnings))
 
+    def report_with_failing_remark(self, error: str, config=None) -> list[str]:
+        """振り返りの時刻をまたぐ回で、一言が書けなかったときに送られる本文。"""
+        import contextlib
+        import io
+
+        from nampinonychus import narrate
+
+        def failing(system, user):
+            raise narrate.NarrateError(error)
+
+        cfg = config if config is not None else self.config
+        cfg = dataclasses.replace(cfg, narrate_enabled=True)
+        status = self.root / cfg.status_output
+        status.parent.mkdir(parents=True, exist_ok=True)
+        status.write_text(
+            "updated_at: '2026-08-18T08:45:00+09:00'\nstate: IDLE\n", encoding="utf-8"
+        )
+        sent: list[str] = []
+        os.environ[cfg.notify_webhook_env] = "https://example.invalid/hook"
+        try:
+            client = cli.Client(cfg, runner=FakeCli(default_responses()))
+            with contextlib.redirect_stderr(io.StringIO()):
+                run_once(
+                    cfg,
+                    client,
+                    NOW,
+                    repo_root=self.root,
+                    narrator=failing,
+                    notifier=lambda url, content, timeout: sent.append(content),
+                )
+        finally:
+            os.environ.pop(cfg.notify_webhook_env, None)
+        return sent
+
+    def test_ログイン切れで一言を書けなければ振り返りに足す(self):
+        """拒否権を諮るのは買いを出す回だけ。買わない日が続いても気づけるようにする。"""
+        sent = self.report_with_failing_remark(
+            "claude が異常終了しました（終了コード 1）: "
+            "Failed to authenticate: OAuth session expired and could not be refreshed"
+        )
+        self.assertEqual(len(sent), 1)
+        self.assertIn("の振り返り", sent[0])
+        self.assertIn("ログインが切れていて、一言を書けませんでした", sent[0])
+        self.assertIn("/login", sent[0])
+
+    def test_ほかの失敗では振り返りに足さない(self):
+        sent = self.report_with_failing_remark("claude が 120 秒で返らなかった")
+        self.assertEqual(len(sent), 1)
+        self.assertIn("の振り返り", sent[0])
+        self.assertNotIn("ログイン", sent[0])
+
+    def test_無効なら振り返りに足さない(self):
+        config = dataclasses.replace(
+            self.config, notify_on={**self.config.notify_on, "login": False}
+        )
+        sent = self.report_with_failing_remark(
+            "claude が異常終了しました（終了コード 1）: Failed to authenticate", config
+        )
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("ログイン", sent[0])
+
     def test_発注に失敗したらstatusを更新しない(self):
         config = dataclasses.replace(self.config, dry_run=False)
         fake = FakeCli(default_responses(), errors={"paper create-order": "insufficient jpy"})

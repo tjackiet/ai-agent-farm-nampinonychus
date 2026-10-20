@@ -417,6 +417,31 @@ class 失敗の伝えかたTest(unittest.TestCase):
 
 
 
+class NeedsLoginTest(unittest.TestCase):
+    """ログインし直せば直る失敗かどうか。通知の文面を分けるために見分ける。"""
+
+    def test_実際に出た文面をログイン切れとみなす(self):
+        error = (
+            "NarrateError: claude が異常終了しました（終了コード 1）: "
+            "Failed to authenticate: OAuth session expired and could not be refreshed"
+        )
+        self.assertTrue(narrate.needs_login(error))
+
+    def test_loginを促す文面をログイン切れとみなす(self):
+        self.assertTrue(narrate.needs_login("Login expired · Please run /login"))
+
+    def test_ほかの失敗はログイン切れとみなさない(self):
+        for error in (
+            None,
+            "",
+            "NarrateError: claude が異常終了しました（終了コード 1）",
+            "NarrateError: claude が見つかりません。PATH を確認する",
+            "NarrateError: claude が 120 秒で返らなかった",
+        ):
+            with self.subTest(error=error):
+                self.assertFalse(narrate.needs_login(error))
+
+
 class CommentTest(unittest.TestCase):
     def setUp(self) -> None:
         self.config = load_config()
