@@ -54,6 +54,25 @@
     <key>NAMPINONYCHUS_WEBHOOK_URL</key>
     <string>ここに Webhook の URL</string>
     -->
+
+    <!--
+      claude のログインを1年もたせるなら、下の2行のコメントを外し、
+      claude setup-token が表示したトークンを入れる（README「claude のログインを1年もたせる」）。
+      /login のログインは約1か月で切れ、切れると拒否権を諮れず買いが止まる
+      （2026-09-04 と 2026-10-12 に起きた）。
+
+      引かれるのは /login と同じサブスクリプションの利用枠。ただし agent.yaml の
+      bare を true にすると読まれない。ANTHROPIC_API_KEY があればそちらが優先される。
+      入れている間は /login のログインより優先されるので、切れたら /login ではなく
+      トークンを発行し直して差し替える。URL と同じく、リポジトリへ戻さないこと。
+
+      渡っているかは値を出さずに確かめられる。
+        launchctl print gui/$(id -u)/local.nampinonychus | grep -c CLAUDE_CODE_OAUTH_TOKEN
+    -->
+    <!--
+    <key>CLAUDE_CODE_OAUTH_TOKEN</key>
+    <string>ここに claude setup-token のトークン</string>
+    -->
   </dict>
 
   <!-- 15分ごと。スリープ中は動かず、復帰後に一度だけ実行される。 -->

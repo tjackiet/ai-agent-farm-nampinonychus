@@ -265,10 +265,13 @@ class CycleTest(unittest.TestCase):
         self.assertTrue(cycle.status_written)
         self.assertTrue(any("送れませんでした" in w for w in cycle.warnings))
 
-    def report_with_failing_remark(self, error: str, config=None) -> list[str]:
+    def report_with_failing_remark(
+        self, error: str, config=None, token: str | None = None
+    ) -> list[str]:
         """振り返りの時刻をまたぐ回で、一言が書けなかったときに送られる本文。"""
         import contextlib
         import io
+        from unittest import mock
 
         from nampinonychus import narrate
 
@@ -283,8 +286,12 @@ class CycleTest(unittest.TestCase):
             "updated_at: '2026-08-18T08:45:00+09:00'\nstate: IDLE\n", encoding="utf-8"
         )
         sent: list[str] = []
-        os.environ[cfg.notify_webhook_env] = "https://example.invalid/hook"
-        try:
+        with mock.patch.dict(os.environ):
+            os.environ[cfg.notify_webhook_env] = "https://example.invalid/hook"
+            # 案内の文面はトークンが渡っているかで変わる。動かす環境に左右させない。
+            os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+            if token is not None:
+                os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = token
             client = cli.Client(cfg, runner=FakeCli(default_responses()))
             with contextlib.redirect_stderr(io.StringIO()):
                 run_once(
@@ -295,8 +302,6 @@ class CycleTest(unittest.TestCase):
                     narrator=failing,
                     notifier=lambda url, content, timeout: sent.append(content),
                 )
-        finally:
-            os.environ.pop(cfg.notify_webhook_env, None)
         return sent
 
     def test_ログイン切れで一言を書けなければ振り返りに足す(self):
@@ -309,6 +314,16 @@ class CycleTest(unittest.TestCase):
         self.assertIn("の振り返り", sent[0])
         self.assertIn("ログインが切れていて、一言を書けませんでした", sent[0])
         self.assertIn("/login", sent[0])
+
+    def test_トークンを使っていれば振り返りでも発行し直すよう案内する(self):
+        sent = self.report_with_failing_remark(
+            "claude が異常終了しました（終了コード 1）: Failed to authenticate",
+            token="dummy",
+        )
+        self.assertEqual(len(sent), 1)
+        self.assertIn("claude setup-token", sent[0])
+        self.assertNotIn("/login", sent[0])
+        self.assertNotIn("dummy", sent[0])
 
     def test_ほかの失敗では振り返りに足さない(self):
         sent = self.report_with_failing_remark("claude が 120 秒で返らなかった")

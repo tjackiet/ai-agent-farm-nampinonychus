@@ -286,6 +286,62 @@ launchctl print gui/$(id -u)/local.nampinonychus | grep -c NAMPINONYCHUS_WEBHOOK
 - `var/run.log` は1回あたり1行（約1KB）です。放置すると増え続けるので、
   ときどき消してください。判断の記録は `var/memory/decisions/` に残ります。
 
+### claude のログインを1年もたせる（任意）
+
+`claude` の `/login` のログインは約1か月で切れます。2026-09-04 と 2026-10-12 に切れ、
+そのたびに拒否権を諮れず、買いが止まりました。無人で動かすなら、
+`claude setup-token` で**有効期限1年のトークン**を発行し、plist に渡せます。
+引かれるのは `/login` と同じサブスクリプションの利用枠です（Pro / Max などのプランが要ります）。
+
+1. トークンを発行します。ブラウザで許可すると、ターミナルにトークンが表示されます。
+   **どこにも保存されない**ので、そのまま次の手順で plist に入れてください。
+
+   ```bash
+   claude setup-token
+   ```
+
+2. plist の `EnvironmentVariables` に足します。雛形にはコメントアウトした行があります。
+   この雛形より前に登録した plist には無いので、`PATH` の `</string>` の下に2行を足してください。
+
+   ```bash
+   open -e ~/Library/LaunchAgents/local.nampinonychus.plist
+   ```
+
+   ```xml
+   <key>CLAUDE_CODE_OAUTH_TOKEN</key>
+   <string>ここに表示されたトークン</string>
+   ```
+
+3. 読み込み直し、渡っているかを確かめます（1 なら渡っている。トークンそのものは出ない）。
+
+   ```bash
+   launchctl unload ~/Library/LaunchAgents/local.nampinonychus.plist
+   launchctl load ~/Library/LaunchAgents/local.nampinonychus.plist
+   launchctl print gui/$(id -u)/local.nampinonychus | grep -c CLAUDE_CODE_OAUTH_TOKEN
+   ```
+
+4. launchd と同じ環境で、そのトークンで `claude` を呼べるかを確かめます。
+   `PROCEED` が返り `exit=0` なら大丈夫です（トークンは画面に出ません）。
+
+   ```bash
+   PLIST=~/Library/LaunchAgents/local.nampinonychus.plist
+   cd /tmp && env -i HOME="$HOME" \
+     PATH="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:PATH' "$PLIST")" \
+     CLAUDE_CODE_OAUTH_TOKEN="$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:CLAUDE_CODE_OAUTH_TOKEN' "$PLIST")" \
+     claude -p 'PROCEED とだけ返してください'; echo "exit=$?"
+   ```
+
+- **トークンは秘密です。** リポジトリ・`agent.yaml`・チャットに書かないでください。
+  Webhook の URL と同じく、plist は `~/Library/LaunchAgents` にだけ置きます。
+- **`narrate.bare` / `veto.bare` を `true` にすると読まれません**（`ANTHROPIC_API_KEY` が必須になる）。
+  `ANTHROPIC_API_KEY` が同じ環境にあれば、そちらが優先されて API 課金になります。
+- **1年で切れます。** 発行した日から1年後をカレンダーに入れておいてください。
+  切れたら同じ手順で発行し直し、plist の値を差し替えます。
+- **トークンを入れている間は、`/login` しても直りません。** `claude` は `/login` の
+  ログインよりトークンを優先するためです。ログイン切れの通知も、トークンが渡っている
+  ときは「`claude setup-token` で発行し直し、差し替えてください」と案内します。
+- やめるときは plist から2行を消して読み込み直します。`/login` のログインに戻ります。
+
 ## 記録の言語化
 
 日誌の「所感」と、建玉が完結したときの「学び」を、ナンピノニクス自身の言葉で書きます。
@@ -306,10 +362,13 @@ launchctl print gui/$(id -u)/local.nampinonychus | grep -c NAMPINONYCHUS_WEBHOOK
 | 認証 | 引かれ先 |
 | --- | --- |
 | claude.ai のログイン（`claude /login`） | プランの利用枠（5時間・週のウィンドウ） |
+| 環境に `CLAUDE_CODE_OAUTH_TOKEN` がある（`claude setup-token`） | プランの利用枠（`/login` と同じ） |
 | 環境に `ANTHROPIC_API_KEY` がある / Console ログイン | API クレジット |
 
 **環境変数の API キーが優先されます。** launchd の `EnvironmentVariables` に
 `ANTHROPIC_API_KEY` を入れていると、サブスクリプションではなく API から引かれます。
+優先順は `ANTHROPIC_API_KEY` → `CLAUDE_CODE_OAUTH_TOKEN` → `/login` のログインです
+（`CLAUDE_CODE_OAUTH_TOKEN` は「claude のログインを1年もたせる」を参照）。
 
 `narrate.bare` で `--bare` の有無も選べます。
 
@@ -457,7 +516,10 @@ claude のログインが切れています。拒否権を諮れず、買いを�
   見送りの連続の通知（理由つき）は従来どおり届きます。
 
 ログインし直すには、ターミナルで `claude` を起動し、`/login` を実行します。
-次の回から諮れるようになります。
+次の回から諮れるようになります。`claude setup-token` のトークンを plist に入れている
+場合は `/login` では直らないので、トークンを発行し直して差し替えます
+（「claude のログインを1年もたせる」）。通知の案内もそちらに変わります。
+切れないようにしたいときも、同じ節の手順でトークンに切り替えられます。
 
 `notify.report_at`（既定 09:00 / 21:00）には、振り返りを送ります。
 

@@ -339,7 +339,7 @@ def run_once(
                 if cfg.notify_on.get("login") and narrate_module.needs_login(str(exc)):
                     report = (
                         f"{report}\nclaude のログインが切れていて、一言を書けませんでした。"
-                        f"{notify_module.LOGIN_HINT}"
+                        f"{notify_module.login_hint()}"
                     )
             except Exception as exc:  # noqa: BLE001 - 一言が書けなくても送る
                 _late_warning(client, f"一言を書けませんでした: {type(exc).__name__}")
