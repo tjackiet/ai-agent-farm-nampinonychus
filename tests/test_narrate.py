@@ -361,6 +361,48 @@ class 失敗の伝えかたTest(unittest.TestCase):
             self._write(failed)
         self.assertIn("OAuth session expired", str(caught.exception))
 
+    def test_標準エラー出力が空なら標準出力を残す(self):
+        """`claude -p` は認証切れを標準出力に書き、標準エラー出力は空になる。
+
+        2026-10-12 から拒否権を諮れず買いが全て HOLD になっていたが、
+        通知は「終了コード 1」で終わり、理由が読めなかった。
+        """
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                "Failed to authenticate: OAuth session expired and could not be refreshed\n",
+                "",
+            )
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("OAuth session expired", str(caught.exception))
+
+    def test_標準エラー出力があれば標準出力より先に残す(self):
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1, "途中の出力", "原因")
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("原因", str(caught.exception))
+        self.assertNotIn("途中の出力", str(caught.exception))
+
+    def test_標準出力も300文字で切る(self):
+        import subprocess
+
+        def failed(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1, "o" * 500, "")
+
+        with self.assertRaises(narrate.NarrateError) as caught:
+            self._write(failed)
+        self.assertIn("o" * 300, str(caught.exception))
+        self.assertNotIn("o" * 301, str(caught.exception))
+
     def test_標準エラー出力は300文字で切る(self):
         """資格情報が混ざりうるので、veto と同じ長さに合わせる。"""
         import subprocess

@@ -427,6 +427,10 @@ launchd から動かす場合は、plist の `EnvironmentVariables` に足して
 | 判断ログ | 文面 | 意味 |
 | --- | --- | --- |
 | `veto.error` あり | `…回続けて拒否権を諮れず、買いを見送っています` | **諮れていない。** 認証切れ・`claude` の PATH など、直すべき異常 |
+
+文面の末尾に `Failed to authenticate: OAuth session expired …` とあれば、
+`claude` のログインが切れています。ターミナルで `claude` を起動し、`/login` で
+ログインし直してください。次の回から諮れるようになります。
 | `veto.error` なし | `…回続けて LLM の判断で買いを見送っています` | LLM が意図して見送っている。異常ではない |
 
 観測・発注の失敗（`error_streak`）とは別に数えます。諮れなかった失敗は
